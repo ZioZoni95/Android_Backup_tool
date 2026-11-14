@@ -36,6 +36,13 @@ pub enum Screen {
         action: InputAction,
     },
     Help,
+    /// Elenco "Vai a…" (luoghi, preferiti, recenti).
+    Goto {
+        side: Side,
+        items: Vec<crate::places::Place>,
+        sel: usize,
+        pos: (u16, u16),
+    },
     /// Menu contestuale (click destro).
     Menu {
         items: Vec<(String, MenuAction)>,
@@ -63,8 +70,13 @@ pub enum MenuAction {
 
 /// Rettangolo del menu contestuale (condiviso da rendering e hit-testing).
 pub fn menu_rect(items: &[(String, MenuAction)], pos: (u16, u16), screen: Rect) -> Rect {
-    let w = (items.iter().map(|i| i.0.chars().count()).max().unwrap_or(10) as u16 + 6).min(screen.width);
-    let h = (items.len() as u16 + 2).min(screen.height);
+    popup_rect(items.iter().map(|i| i.0.chars().count()).max().unwrap_or(10), items.len(), pos, screen)
+}
+
+/// Rettangolo di un popup con `n` righe larghe al massimo `maxw` caratteri.
+pub fn popup_rect(maxw: usize, n: usize, pos: (u16, u16), screen: Rect) -> Rect {
+    let w = (maxw as u16 + 6).min(screen.width);
+    let h = (n as u16 + 2).min(screen.height);
     let x = pos.0.min(screen.width.saturating_sub(w));
     let y = pos.1.min(screen.height.saturating_sub(h));
     Rect { x, y, width: w, height: h }
@@ -81,6 +93,7 @@ pub enum InputAction {
     Mkdir(Side),
     Rename(Side, String),
     Filter(Side),
+    GotoPath(Side),
     Connect,
     /// Trasferimento dal pannello indicato (destinazione editabile).
     Transfer(Side, bool),
@@ -177,6 +190,7 @@ pub struct App {
     /// Aree dei pannelli (Locale, Device) dell'ultimo frame, per il mouse.
     pub pane_rects: [Rect; 2],
     last_click: Option<(std::time::Instant, Side, usize)>,
+    pub saved: crate::places::Saved,
 }
 
 fn clamp_sel(p: &mut Pane) {
@@ -276,6 +290,7 @@ impl App {
             quit: false,
             pane_rects: [Rect::default(); 2],
             last_click: None,
+            saved: crate::places::Saved::load(),
         }
     }
 
@@ -338,6 +353,13 @@ impl App {
     }
 
     pub fn refresh(&mut self, side: Side) {
+        let cur = match side {
+            Side::Local => Some(self.local.cwd.clone()),
+            Side::Remote => self.remote.as_ref().map(|r| r.cwd.clone()),
+        };
+        if let Some(c) = cur {
+            self.saved.visit(side, &c);
+        }
         match side {
             Side::Local => {
                 let cwd = self.local.cwd.clone();
@@ -916,6 +938,19 @@ impl App {
                     Side::Local => self.push_to(v, whole),
                 }
             }
+            InputAction::GotoPath(side) => {
+                let mut path = v;
+                if side == Side::Local {
+                    if path == "~" || path.starts_with("~/") {
+                        if let Ok(h) = std::env::var("HOME") {
+                            path = format!("{h}{}", &path[1..]);
+                        }
+                    }
+                } else if !path.starts_with('/') {
+                    path = format!("/{path}");
+                }
+                self.goto(side, path);
+            }
             InputAction::Filter(side) => {
                 if let Some(p) = self.pane(side) {
                     p.filter = v;
@@ -1032,6 +1067,29 @@ impl App {
             }
             return;
         }
+        if let Screen::Goto { items, pos, side, .. } = &self.screen {
+            let side = *side;
+            let maxw = items.iter().map(|i| i.0.chars().count()).max().unwrap_or(10);
+            let r = popup_rect(maxw, items.len(), *pos, screen);
+            let inside = m.column >= r.x && m.column < r.x + r.width && m.row > r.y && m.row + 1 < r.y + r.height;
+            let idx = (m.row.saturating_sub(r.y + 1)) as usize;
+            match m.kind {
+                MouseEventKind::Moved | MouseEventKind::Drag(_) if inside => {
+                    if let Screen::Goto { sel, items, .. } = &mut self.screen {
+                        *sel = idx.min(items.len().saturating_sub(1));
+                    }
+                }
+                MouseEventKind::Down(MouseButton::Left) if inside => {
+                    let path = items.get(idx).map(|i| i.1.clone());
+                    if let Some(p) = path {
+                        self.goto_choose(side, p);
+                    }
+                }
+                MouseEventKind::Down(_) => self.screen = Screen::Files,
+                _ => {}
+            }
+            return;
+        }
         if !matches!(self.screen, Screen::Files) {
             return;
         }
@@ -1044,6 +1102,11 @@ impl App {
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 let Some((side, row)) = self.hit(m.column, m.row) else { return };
+                let top = self.pane_rects[if side == Side::Local { 0 } else { 1 }].y;
+                if m.row == top {
+                    self.title_click(side, m.column);
+                    return;
+                }
                 self.select_at(side, row);
                 if let Some(i) = row {
                     let now = std::time::Instant::now();
@@ -1122,6 +1185,127 @@ impl App {
             MenuAction::Sort => self.cycle_sort(),
             MenuAction::Hidden => self.toggle_hidden(),
         }
+    }
+
+    /// Porta il pannello su un percorso qualsiasi.
+    pub fn goto(&mut self, side: Side, path: String) {
+        let path = if path.len() > 1 { path.trim_end_matches('/').to_string() } else { path };
+        if path.is_empty() {
+            return;
+        }
+        if side == Side::Local && !Path::new(&path).is_dir() {
+            self.log(format!("⚠ cartella non trovata: {path}"));
+            return;
+        }
+        let Some(p) = self.pane(side) else { return };
+        if p.cwd == path {
+            return;
+        }
+        // se si risale, il cursore torna sulla cartella da cui si proviene
+        if dev_parent(&p.cwd) == path {
+            p.goto_name = Some(dev_basename(&p.cwd).to_string());
+        }
+        p.cwd = path;
+        p.marked.clear();
+        p.filter.clear();
+        p.raw.clear();
+        p.entries.clear();
+        p.sel = 0;
+        p.list_state.select(Some(0));
+        self.refresh(side);
+    }
+
+    /// Click sul titolo del pannello: un segmento del path → vai lì;
+    /// il resto del titolo apre "Vai a…".
+    fn title_click(&mut self, side: Side, x: u16) {
+        let i = if side == Side::Local { 0 } else { 1 };
+        let r = self.pane_rects[i];
+        let (label, cwd) = match side {
+            Side::Local => ("Locale", self.local.cwd.clone()),
+            Side::Remote => match self.remote.as_ref() {
+                Some(p) => ("Device", p.cwd.clone()),
+                None => return,
+            },
+        };
+        let prefix = 1 + label.chars().count() + 2;
+        let col = x as i64 - (r.x as i64 + 1) - prefix as i64;
+        if col >= 0 {
+            if let Some((_, _, target)) = crate::places::crumbs(&cwd)
+                .into_iter()
+                .find(|(a, b, _)| (col as usize) >= *a && (col as usize) < *b)
+            {
+                self.active = side;
+                self.goto(side, target);
+                return;
+            }
+        }
+        self.active = side;
+        self.open_goto(side, (r.x + 2, r.y + 1));
+    }
+
+    /// `g`: elenco "Vai a…" con luoghi, preferiti e recenti.
+    pub fn open_goto(&mut self, side: Side, pos: (u16, u16)) {
+        let (places, cwd) = match side {
+            Side::Local => (crate::places::local_places(), self.local.cwd.clone()),
+            Side::Remote => match self.remote.as_ref() {
+                Some(r) => (crate::places::remote_places(&self.adb), r.cwd.clone()),
+                None => return,
+            },
+        };
+        let mut items: Vec<crate::places::Place> = Vec::new();
+        let mut seen = HashSet::new();
+        let mut cur_idx = 0;
+        for (l, p) in places {
+            if seen.insert(p.clone()) {
+                items.push((format!("▸ {l}  —  {p}"), p));
+            }
+        }
+        for (s, p) in &self.saved.favs {
+            if *s == side && seen.insert(p.clone()) {
+                items.push((format!("★ {}  —  {p}", dev_basename(p)), p.clone()));
+            }
+        }
+        for (s, p) in &self.saved.recents {
+            if *s == side && seen.insert(p.clone()) {
+                items.push((format!("↺ {}  —  {p}", dev_basename(p)), p.clone()));
+            }
+        }
+        items.push(("✎ Digita un percorso…".into(), String::new()));
+        if let Some(i) = items.iter().position(|(_, p)| *p == cwd) {
+            cur_idx = i;
+        }
+        self.screen = Screen::Goto { side, items, sel: cur_idx, pos };
+    }
+
+    fn goto_choose(&mut self, side: Side, path: String) {
+        self.screen = Screen::Files;
+        if path.is_empty() {
+            let cwd = match side {
+                Side::Local => self.local.cwd.clone(),
+                Side::Remote => self.remote.as_ref().map(|r| r.cwd.clone()).unwrap_or_default(),
+            };
+            self.screen = Screen::Input {
+                title: "Vai al percorso".into(),
+                value: cwd,
+                action: InputAction::GotoPath(side),
+            };
+        } else {
+            self.goto(side, path);
+        }
+    }
+
+    /// `B`: aggiunge/rimuove la cartella corrente dai preferiti.
+    pub fn toggle_favorite(&mut self) {
+        let side = self.active;
+        let cwd = match side {
+            Side::Local => self.local.cwd.clone(),
+            Side::Remote => match self.remote.as_ref() {
+                Some(r) => r.cwd.clone(),
+                None => return,
+            },
+        };
+        let on = self.saved.toggle_fav(side, &cwd);
+        self.log(if on { format!("★ preferito aggiunto: {cwd}") } else { format!("preferito rimosso: {cwd}") });
     }
 
     pub fn page(&mut self, dir: i64) {
@@ -1276,6 +1460,7 @@ impl App {
             Input(InputAction, String),
             Help,
             Menu,
+            Goto,
         }
         let route = match &self.screen {
             Screen::Devices { sel } => Route::Devices { sel: *sel },
@@ -1284,6 +1469,7 @@ impl App {
             Screen::Input { action, value, .. } => Route::Input(action.clone(), value.clone()),
             Screen::Help => Route::Help,
             Screen::Menu { .. } => Route::Menu,
+            Screen::Goto { .. } => Route::Goto,
         };
         match route {
             Route::Devices { sel } => match key.code {
@@ -1344,7 +1530,13 @@ impl App {
                 KeyCode::Char('J') => self.toggle_mark(),
                 KeyCode::Up | KeyCode::Char('k') => self.move_sel(-1),
                 KeyCode::Down | KeyCode::Char('j') => self.move_sel(1),
-                KeyCode::Home | KeyCode::Char('g') => self.sel_home_end(false),
+                KeyCode::Home => self.sel_home_end(false),
+                KeyCode::Char('g') => {
+                    let s = self.active;
+                    let r = self.pane_rects[if s == Side::Local { 0 } else { 1 }];
+                    self.open_goto(s, (r.x + 2, r.y + 1));
+                }
+                KeyCode::Char('B') => self.toggle_favorite(),
                 KeyCode::End | KeyCode::Char('G') => self.sel_home_end(true),
                 KeyCode::Left | KeyCode::Char('h') | KeyCode::Backspace => self.go_parent(),
                 KeyCode::Enter => self.enter(),
@@ -1364,6 +1556,30 @@ impl App {
                 _ => {}
             },
             Route::Help => self.screen = Screen::Files,
+            Route::Goto => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Screen::Goto { sel, items, .. } = &mut self.screen {
+                        *sel = if *sel == 0 { items.len() - 1 } else { *sel - 1 };
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Screen::Goto { sel, items, .. } = &mut self.screen {
+                        *sel = (*sel + 1) % items.len();
+                    }
+                }
+                KeyCode::Enter => {
+                    let pick = match &self.screen {
+                        Screen::Goto { side, items, sel, .. } => items.get(*sel).map(|i| (*side, i.1.clone())),
+                        _ => None,
+                    };
+                    if let Some((side, path)) = pick {
+                        self.goto_choose(side, path);
+                    } else {
+                        self.screen = Screen::Files;
+                    }
+                }
+                _ => self.screen = Screen::Files,
+            },
             Route::Menu => match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     if let Screen::Menu { sel, items, .. } = &mut self.screen {

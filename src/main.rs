@@ -17,6 +17,7 @@ mod adb;
 mod app;
 mod device_fs;
 mod transfer;
+mod places;
 mod ui;
 mod util;
 
