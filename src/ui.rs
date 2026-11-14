@@ -205,7 +205,7 @@ fn draw_goto(f: &mut Frame, app: &App) {
 }
 
 fn draw_menu(f: &mut Frame, app: &App) {
-    let Screen::Menu { items, sel, pos, title } = &app.screen else { return };
+    let Screen::Menu { items, sel, pos, title, size } = &app.screen else { return };
     let r = crate::app::menu_rect(items, *pos, f.area());
     f.render_widget(Clear, r);
     let rows: Vec<ListItem> = items
@@ -220,7 +220,8 @@ fn draw_menu(f: &mut Frame, app: &App) {
                 .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(accent(app.active)))
-                .title(format!(" {title} ")),
+                .title(format!(" {title} "))
+                .title_bottom(Line::from(Span::styled(format!(" {size} "), Style::default().fg(MARK)))),
         )
         .highlight_style(Style::default().fg(Color::Black).bg(accent(app.active)));
     f.render_stateful_widget(list, r, &mut st);

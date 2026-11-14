@@ -129,3 +129,37 @@ pub fn default_backup_dir() -> Result<String, String> {
     std::fs::create_dir_all(&d).map_err(|e| format!("{d}: {e}"))?;
     Ok(d)
 }
+
+/// Numero con separatore delle migliaia (es. 1.234.567).
+pub fn fmt_int(n: u64) -> String {
+    let d = n.to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push('.');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Somma ricorsiva locale: (byte, file, cartelle).
+pub fn local_totals(path: &std::path::Path) -> (u64, u64, u64) {
+    let Ok(md) = std::fs::symlink_metadata(path) else { return (0, 0, 0) };
+    if md.is_file() {
+        return (md.len(), 1, 0);
+    }
+    if !md.is_dir() {
+        return (0, 0, 0);
+    }
+    let (mut b, mut f, mut d) = (0, 0, 0);
+    if let Ok(rd) = std::fs::read_dir(path) {
+        for e in rd.flatten() {
+            let (b2, f2, d2) = local_totals(&e.path());
+            b += b2;
+            f += f2;
+            d += d2;
+        }
+    }
+    (b, f, d + 1)
+}
