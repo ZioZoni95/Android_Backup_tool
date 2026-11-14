@@ -48,6 +48,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             draw_files(f, app);
             draw_help(f);
         }
+        Screen::Menu { .. } => {
+            draw_files(f, app);
+            draw_menu(f, app);
+        }
         Screen::Confirm { .. } | Screen::Input { .. } => {
             draw_files(f, app);
             draw_dialog(f, app);
@@ -93,6 +97,27 @@ fn hints(f: &mut Frame, area: Rect, rows: &[&[(&str, &str)]]) {
     f.render_widget(Paragraph::new(lines), area);
 }
 
+fn draw_menu(f: &mut Frame, app: &App) {
+    let Screen::Menu { items, sel, pos, title } = &app.screen else { return };
+    let r = crate::app::menu_rect(items, *pos, f.area());
+    f.render_widget(Clear, r);
+    let rows: Vec<ListItem> = items
+        .iter()
+        .map(|(l, _)| ListItem::new(Line::from(format!(" {l} "))))
+        .collect();
+    let mut st = ListState::default();
+    st.select(Some(*sel));
+    let list = List::new(rows)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(format!(" {title} ")),
+        )
+        .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
+    f.render_stateful_widget(list, r, &mut st);
+}
+
 fn draw_help(f: &mut Frame) {
     let area = centered_rect(80, 85, f.area());
     f.render_widget(Clear, area);
@@ -116,6 +141,8 @@ fn draw_help(f: &mut Frame) {
         ("R  (F2)", "rinomina"),
         ("d  (Canc)", "elimina (con conferma)"),
         ("ALTRO", ""),
+        ("click destro  (m)", "menu contestuale: copia, cartella intera, rinomina, elimina…"),
+        ("click sx · doppio click", "seleziona · apri cartella / trasferisci file · rotella scorre"),
         ("S", "esporta SMS + registro chiamate"),
         ("x", "annulla il trasferimento attivo"),
         ("q  Ctrl+C", "esci"),
@@ -238,6 +265,7 @@ fn draw_files(f: &mut Frame, app: &mut App) {
         .direction(LDirection::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[1]);
+    app.pane_rects = [panes[0], panes[1]];
     let active_local = app.active == Side::Local;
     draw_pane(f, panes[0], &mut app.local, active_local, "Locale");
     match app.remote.as_mut() {
