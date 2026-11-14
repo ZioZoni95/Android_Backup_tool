@@ -80,6 +80,13 @@ momento per l'elenco completo dei comandi.
 | `x`                       | annulla il trasferimento attivo                          |
 | `q` / `Ctrl+C`            | esci                                                     |
 
+**Mouse.** Click sinistro seleziona (doppio click: apre la cartella o trasferisce il file),
+la rotella scorre. **Click destro** (o `m` da tastiera) apre il menu contestuale sulla voce
+sotto il cursore: apri, copia (→ altro pannello), marca, rinomina, elimina; e sulla cartella
+corrente: copia l'intera cartella, sync incrementale, nuova cartella, seleziona tutto,
+ordina, file nascosti, aggiorna. Nel menu: click, `↑↓` + Invio, `Esc` per chiudere.
+Con il mouse attivo, per selezionare testo nel terminale tieni premuto `Shift`.
+
 **Selezione multipla e destinazione.** Marca più voci (anche cartelle) e premi `y`/`p`:
 compare un riepilogo (cartelle, file, dimensione) e la **cartella di destinazione**,
 precompilata con quella dell'altro pannello. Modificala se serve e conferma con Invio;

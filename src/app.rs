@@ -6,10 +6,12 @@ use crate::device_fs::{self, Entry};
 use crate::transfer::{Direction, JobKind, JobSpec, Queue};
 use crate::util::{dev_basename, dev_join, dev_parent, fmt_date, now_secs};
 use anyhow::Result;
+use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 
@@ -34,6 +36,38 @@ pub enum Screen {
         action: InputAction,
     },
     Help,
+    /// Menu contestuale (click destro).
+    Menu {
+        items: Vec<(String, MenuAction)>,
+        sel: usize,
+        pos: (u16, u16),
+        title: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    Open,
+    Transfer,
+    TransferWhole,
+    Sync,
+    Mark,
+    MarkAll,
+    Rename,
+    Delete,
+    Mkdir,
+    Refresh,
+    Sort,
+    Hidden,
+}
+
+/// Rettangolo del menu contestuale (condiviso da rendering e hit-testing).
+pub fn menu_rect(items: &[(String, MenuAction)], pos: (u16, u16), screen: Rect) -> Rect {
+    let w = (items.iter().map(|i| i.0.chars().count()).max().unwrap_or(10) as u16 + 6).min(screen.width);
+    let h = (items.len() as u16 + 2).min(screen.height);
+    let x = pos.0.min(screen.width.saturating_sub(w));
+    let y = pos.1.min(screen.height.saturating_sub(h));
+    Rect { x, y, width: w, height: h }
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +174,9 @@ pub struct App {
     pub pending: Option<Pending>,
     pub msgs: Option<Receiver<String>>,
     pub quit: bool,
+    /// Aree dei pannelli (Locale, Device) dell'ultimo frame, per il mouse.
+    pub pane_rects: [Rect; 2],
+    last_click: Option<(std::time::Instant, Side, usize)>,
 }
 
 fn clamp_sel(p: &mut Pane) {
@@ -237,6 +274,8 @@ impl App {
             pending: None,
             msgs: None,
             quit: false,
+            pane_rects: [Rect::default(); 2],
+            last_click: None,
         }
     }
 
@@ -925,6 +964,166 @@ impl App {
         }
     }
 
+    /// Individua pannello e riga sotto il cursore del mouse.
+    fn hit(&self, x: u16, y: u16) -> Option<(Side, Option<usize>)> {
+        for (i, side) in [(0, Side::Local), (1, Side::Remote)] {
+            let r = self.pane_rects[i];
+            if r.width == 0 || x < r.x || x >= r.x + r.width || y < r.y || y >= r.y + r.height {
+                continue;
+            }
+            let pane = if side == Side::Local { Some(&self.local) } else { self.remote.as_ref() }?;
+            let inner_top = r.y + 1;
+            let row = if y >= inner_top && y + 1 < r.y + r.height {
+                let idx = pane.list_state.offset() + (y - inner_top) as usize;
+                if idx < pane.entries.len() { Some(idx) } else { None }
+            } else {
+                None
+            };
+            return Some((side, row));
+        }
+        None
+    }
+
+    fn select_at(&mut self, side: Side, idx: Option<usize>) {
+        self.active = side;
+        if let Some(i) = idx {
+            if let Some(p) = self.pane(side) {
+                p.sel = i;
+                p.list_state.select(Some(i));
+            }
+        }
+    }
+
+    /// Gestione mouse: click sinistro = seleziona (doppio = apri/trasferisci),
+    /// click destro = menu contestuale, rotella = scorri.
+    pub fn on_mouse(&mut self, m: crossterm::event::MouseEvent) {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let (w, h) = crossterm::terminal::size().unwrap_or((120, 40));
+        let screen = Rect { x: 0, y: 0, width: w, height: h };
+
+        // menu aperto: i click lo governano
+        if let Screen::Menu { items, pos, .. } = &self.screen {
+            let r = menu_rect(items, *pos, screen);
+            let inside = m.column >= r.x && m.column < r.x + r.width && m.row > r.y && m.row + 1 < r.y + r.height;
+            let idx = (m.row.saturating_sub(r.y + 1)) as usize;
+            match m.kind {
+                MouseEventKind::Moved | MouseEventKind::Drag(_) if inside => {
+                    if let Screen::Menu { sel, items, .. } = &mut self.screen {
+                        *sel = idx.min(items.len().saturating_sub(1));
+                    }
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    if inside {
+                        let act = items.get(idx).map(|i| i.1);
+                        self.screen = Screen::Files;
+                        if let Some(a) = act {
+                            self.run_menu_action(a);
+                        }
+                    } else {
+                        self.screen = Screen::Files;
+                    }
+                }
+                MouseEventKind::Down(MouseButton::Right) => {
+                    self.screen = Screen::Files;
+                    self.on_mouse(m); // riapre il menu nel nuovo punto
+                }
+                MouseEventKind::Down(_) => self.screen = Screen::Files,
+                _ => {}
+            }
+            return;
+        }
+        if !matches!(self.screen, Screen::Files) {
+            return;
+        }
+        match m.kind {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                if let Some((side, _)) = self.hit(m.column, m.row) {
+                    self.active = side;
+                    self.move_sel(if m.kind == MouseEventKind::ScrollUp { -3 } else { 3 });
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                let Some((side, row)) = self.hit(m.column, m.row) else { return };
+                self.select_at(side, row);
+                if let Some(i) = row {
+                    let now = std::time::Instant::now();
+                    let dbl = matches!(self.last_click, Some((t, s, j)) if s == side && j == i && now.duration_since(t) < Duration::from_millis(450));
+                    self.last_click = if dbl { None } else { Some((now, side, i)) };
+                    if dbl {
+                        self.enter();
+                    }
+                }
+            }
+            MouseEventKind::Down(MouseButton::Right) => {
+                let Some((side, row)) = self.hit(m.column, m.row) else { return };
+                self.select_at(side, row);
+                self.open_menu(side, (m.column, m.row));
+            }
+            _ => {}
+        }
+    }
+
+    /// Costruisce e mostra il menu contestuale per la voce sotto il cursore.
+    fn open_menu(&mut self, side: Side, pos: (u16, u16)) {
+        let other = if side == Side::Local { "device" } else { "locale" };
+        let (entry, marked, cwd_name) = {
+            let Some(p) = self.pane(side) else { return };
+            (
+                p.selected().cloned().filter(|e| e.name != ".."),
+                p.marked.len(),
+                dev_basename(&p.cwd).to_string(),
+            )
+        };
+        let mut items: Vec<(String, MenuAction)> = Vec::new();
+        let mut title = format!("«{cwd_name}»");
+        if let Some(e) = &entry {
+            title = if marked > 0 { format!("{marked} selezionati") } else { format!("«{}»", e.name) };
+            let target = if marked > 0 { format!("{marked} selezionati") } else if e.is_dir { format!("cartella «{}»", e.name) } else { format!("«{}»", e.name) };
+            if e.is_dir && marked == 0 {
+                items.push(("Apri cartella".into(), MenuAction::Open));
+            }
+            items.push((format!("Copia {target} → {other}"), MenuAction::Transfer));
+            items.push(("Marca / smarca".into(), MenuAction::Mark));
+            if marked == 0 {
+                items.push(("Rinomina…".into(), MenuAction::Rename));
+            }
+            items.push((format!("Elimina {target}…"), MenuAction::Delete));
+        }
+        items.push((format!("Copia cartella corrente «{cwd_name}» intera → {other}"), MenuAction::TransferWhole));
+        if side == Side::Remote {
+            items.push(("Sync incrementale cartella → locale".into(), MenuAction::Sync));
+        }
+        items.push(("Nuova cartella qui…".into(), MenuAction::Mkdir));
+        items.push(("Seleziona tutto / niente".into(), MenuAction::MarkAll));
+        items.push(("Ordina (nome/dimensione/data)".into(), MenuAction::Sort));
+        items.push(("Mostra/nascondi file nascosti".into(), MenuAction::Hidden));
+        items.push(("Aggiorna".into(), MenuAction::Refresh));
+        self.screen = Screen::Menu { items, sel: 0, pos, title };
+    }
+
+    fn run_menu_action(&mut self, a: MenuAction) {
+        match a {
+            MenuAction::Open => self.enter_dir_only(),
+            MenuAction::Transfer => match self.active {
+                Side::Remote => self.pull_jobs(),
+                Side::Local => self.push_jobs(),
+            },
+            MenuAction::TransferWhole => self.transfer_whole_dir(),
+            MenuAction::Sync => self.sync_job(),
+            MenuAction::Mark => self.toggle_mark(),
+            MenuAction::MarkAll => self.mark_all(),
+            MenuAction::Rename => self.rename_request(),
+            MenuAction::Delete => self.delete_request(),
+            MenuAction::Mkdir => self.mkdir_request(),
+            MenuAction::Refresh => {
+                let s = self.active;
+                self.refresh(s);
+            }
+            MenuAction::Sort => self.cycle_sort(),
+            MenuAction::Hidden => self.toggle_hidden(),
+        }
+    }
+
     pub fn page(&mut self, dir: i64) {
         let step = 12;
         self.move_sel(dir * step);
@@ -1076,6 +1275,7 @@ impl App {
             Confirm(#[allow(dead_code)] ConfirmAction),
             Input(InputAction, String),
             Help,
+            Menu,
         }
         let route = match &self.screen {
             Screen::Devices { sel } => Route::Devices { sel: *sel },
@@ -1083,6 +1283,7 @@ impl App {
             Screen::Confirm { action, .. } => Route::Confirm(action.clone()),
             Screen::Input { action, value, .. } => Route::Input(action.clone(), value.clone()),
             Screen::Help => Route::Help,
+            Screen::Menu { .. } => Route::Menu,
         };
         match route {
             Route::Devices { sel } => match key.code {
@@ -1111,6 +1312,14 @@ impl App {
                 KeyCode::PageUp => self.page(-1),
                 KeyCode::PageDown => self.page(1),
                 KeyCode::Char('T') => self.transfer_whole_dir(),
+                KeyCode::Char('m') | KeyCode::Menu => {
+                    let s = self.active;
+                    let (w, h) = crossterm::terminal::size().unwrap_or((120, 40));
+                    let r = self.pane_rects[if s == Side::Local { 0 } else { 1 }];
+                    let row = self.pane(s).map(|p| p.sel.saturating_sub(p.list_state.offset())).unwrap_or(0) as u16;
+                    let pos = ((r.x + 4).min(w.saturating_sub(1)), (r.y + 2 + row).min(h.saturating_sub(1)));
+                    self.open_menu(s, pos);
+                }
                 KeyCode::Char('R') | KeyCode::F(2) => self.rename_request(),
                 KeyCode::Char('o') => self.cycle_sort(),
                 KeyCode::Char('.') => self.toggle_hidden(),
@@ -1155,6 +1364,29 @@ impl App {
                 _ => {}
             },
             Route::Help => self.screen = Screen::Files,
+            Route::Menu => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Screen::Menu { sel, items, .. } = &mut self.screen {
+                        *sel = if *sel == 0 { items.len() - 1 } else { *sel - 1 };
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Screen::Menu { sel, items, .. } = &mut self.screen {
+                        *sel = (*sel + 1) % items.len();
+                    }
+                }
+                KeyCode::Enter => {
+                    let act = match &self.screen {
+                        Screen::Menu { items, sel, .. } => items.get(*sel).map(|i| i.1),
+                        _ => None,
+                    };
+                    self.screen = Screen::Files;
+                    if let Some(a) = act {
+                        self.run_menu_action(a);
+                    }
+                }
+                _ => self.screen = Screen::Files,
+            },
             Route::Confirm(_) => match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => self.confirm(true),
                 KeyCode::Char('n') | KeyCode::Esc => self.confirm(false),

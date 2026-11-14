@@ -484,7 +484,7 @@ fn tui() -> Result<()> {
 
     let mut stdout = io::stdout();
     terminal::enable_raw_mode()?;
-    execute!(stdout, terminal::EnterAlternateScreen)?;
+    execute!(stdout, terminal::EnterAlternateScreen, crossterm::event::EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
@@ -494,8 +494,10 @@ fn tui() -> Result<()> {
         loop {
             terminal.draw(|f| ui::draw(f, &mut app))?;
             if event::poll(Duration::from_millis(60))? {
-                if let Event::Key(k) = event::read()? {
-                    app.on_key(k);
+                match event::read()? {
+                    Event::Key(k) => app.on_key(k),
+                    Event::Mouse(m) => app.on_mouse(m),
+                    _ => {}
                 }
             }
             app.poll();
@@ -507,7 +509,7 @@ fn tui() -> Result<()> {
     })();
 
     terminal::disable_raw_mode()?;
-    execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), crossterm::event::DisableMouseCapture, terminal::LeaveAlternateScreen)?;
     let _ = io::stdout().flush();
     res
 }
