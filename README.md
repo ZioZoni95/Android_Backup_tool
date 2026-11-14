@@ -95,7 +95,7 @@ trasferimenti mostrano una barra di avanzamento. Serve un terminale con colori a
 la rotella scorre. **Click destro** (o `m` da tastiera) apre il menu contestuale sulla voce
 sotto il cursore: apri, copia (→ altro pannello), marca, rinomina, elimina; e sulla cartella
 corrente: copia l'intera cartella, sync incrementale, nuova cartella, seleziona tutto,
-ordina, file nascosti, aggiorna. Nel menu: click, `↑↓` + Invio, `Esc` per chiudere.
+ordina, file nascosti, aggiorna. Il menu mostra in basso la **dimensione reale** (ricorsiva, in byte, con numero di file e cartelle) della voce, delle voci marcate o della cartella corrente, calcolata in background. Nel menu: click, `↑↓` + Invio, `Esc` per chiudere.
 Con il mouse attivo, per selezionare testo nel terminale tieni premuto `Shift`.
 
 **Cambiare percorso senza scrivere.** Il percorso nel titolo di ogni pannello è cliccabile

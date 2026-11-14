@@ -49,6 +49,8 @@ pub enum Screen {
         sel: usize,
         pos: (u16, u16),
         title: String,
+        /// Dimensione reale (calcolata in background).
+        size: String,
     },
 }
 
@@ -70,7 +72,7 @@ pub enum MenuAction {
 
 /// Rettangolo del menu contestuale (condiviso da rendering e hit-testing).
 pub fn menu_rect(items: &[(String, MenuAction)], pos: (u16, u16), screen: Rect) -> Rect {
-    popup_rect(items.iter().map(|i| i.0.chars().count()).max().unwrap_or(10), items.len(), pos, screen)
+    popup_rect(items.iter().map(|i| i.0.chars().count()).max().unwrap_or(10).max(48), items.len(), pos, screen)
 }
 
 /// Rettangolo di un popup con `n` righe larghe al massimo `maxw` caratteri.
@@ -191,6 +193,8 @@ pub struct App {
     pub pane_rects: [Rect; 2],
     last_click: Option<(std::time::Instant, Side, usize)>,
     pub saved: crate::places::Saved,
+    size_rx: Option<Receiver<(u64, String)>>,
+    menu_gen: u64,
 }
 
 fn clamp_sel(p: &mut Pane) {
@@ -291,6 +295,8 @@ impl App {
             pane_rects: [Rect::default(); 2],
             last_click: None,
             saved: crate::places::Saved::load(),
+            size_rx: None,
+            menu_gen: 0,
         }
     }
 
@@ -303,6 +309,15 @@ impl App {
 
     /// Drena i risultati asincroni (listing remoto, messaggi da thread).
     pub fn poll(&mut self) {
+        if let Some(rx) = self.size_rx.as_ref() {
+            while let Ok((g, txt)) = rx.try_recv() {
+                if g == self.menu_gen {
+                    if let Screen::Menu { size, .. } = &mut self.screen {
+                        *size = txt;
+                    }
+                }
+            }
+        }
         if let Some(p) = self.pending.as_ref() {
             match p.rx.try_recv() {
                 Ok(Ok(entries)) => {
@@ -1161,7 +1176,59 @@ impl App {
         items.push(("Ordina (nome/dimensione/data)".into(), MenuAction::Sort));
         items.push(("Mostra/nascondi file nascosti".into(), MenuAction::Hidden));
         items.push(("Aggiorna".into(), MenuAction::Refresh));
-        self.screen = Screen::Menu { items, sel: 0, pos, title };
+        // dimensione reale (ricorsiva) di voce/marcate/cartella corrente, in background
+        let targets: Vec<(String, bool)> = if marked > 0 {
+            self.pane(side).map(|p| p.marked.iter().map(|m| (m.path.clone(), m.is_dir)).collect()).unwrap_or_default()
+        } else if let Some(e) = &entry {
+            vec![(e.full.clone(), e.is_dir)]
+        } else {
+            let cwd = self.pane(side).map(|p| p.cwd.clone()).unwrap_or_default();
+            vec![(cwd, true)]
+        };
+        self.menu_gen += 1;
+        let gen = self.menu_gen;
+        let (tx, rx) = channel();
+        self.size_rx = Some(rx);
+        let adb = self.adb.clone();
+        std::thread::spawn(move || {
+            let (mut bytes, mut files, mut dirs) = (0u64, 0u64, 0u64);
+            for (path, is_dir) in &targets {
+                if side == Side::Local {
+                    let (b, f, d) = crate::util::local_totals(Path::new(path));
+                    bytes += b;
+                    files += f;
+                    dirs += d;
+                } else {
+                    let q = crate::util::sh_quote(path);
+                    let out = adb
+                        .shell(&format!("toybox du -sb {q} 2>/dev/null; toybox find -H {q} -type f 2>/dev/null | toybox wc -l"))
+                        .unwrap_or_default();
+                    let mut it = out.lines();
+                    bytes += it.next().and_then(|l| l.split_whitespace().next()).and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
+                    files += it.next().and_then(|l| l.trim().parse::<u64>().ok()).unwrap_or(0);
+                    if *is_dir {
+                        dirs += 1;
+                    }
+                }
+            }
+            let mut txt = format!(
+                "{} ({} byte)",
+                crate::util::humanize(bytes),
+                crate::util::fmt_int(bytes)
+            );
+            if dirs > 0 || files > 1 {
+                txt.push_str(&format!(" · {} file", crate::util::fmt_int(files)));
+                if dirs > 0 {
+                    txt.push_str(&format!(
+                        " · {} {}",
+                        crate::util::fmt_int(dirs),
+                        if dirs == 1 { "cartella" } else { "cartelle" }
+                    ));
+                }
+            }
+            let _ = tx.send((gen, txt));
+        });
+        self.screen = Screen::Menu { items, sel: 0, pos, title, size: "calcolo dimensione…".into() };
     }
 
     fn run_menu_action(&mut self, a: MenuAction) {
