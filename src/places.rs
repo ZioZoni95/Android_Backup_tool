@@ -55,13 +55,91 @@ pub fn local_places() -> Vec<Place> {
             v.push((label.into(), format!("{h}/{n}")));
         }
     }
-    if let Ok(u) = std::env::var("USER") {
-        let m = format!("/media/{u}");
-        if Path::new(&m).is_dir() {
-            v.push(("Dischi esterni".into(), m));
-        }
+    for d in mounted_disks() {
+        let space = if d.total > 0 {
+            format!(" · {} liberi di {}", crate::util::humanize(d.avail), crate::util::humanize(d.total))
+        } else {
+            String::new()
+        };
+        v.push((format!("⛁ Disco «{}»{space}", d.name), d.mount));
     }
     v.push(("Radice (/)".into(), "/".into()));
+    v
+}
+
+/// Disco montato: punto di mount, nome leggibile, totale e libero (byte).
+pub struct Disk {
+    pub mount: String,
+    pub name: String,
+    pub total: u64,
+    pub avail: u64,
+}
+
+fn unescape_mount(s: &str) -> String {
+    // /proc/mounts codifica spazi e altri caratteri come \040 (ottale)
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'\\' && i + 3 < b.len() && b[i + 1..i + 4].iter().all(|c| (b'0'..=b'7').contains(c)) {
+            out.push((b[i + 1] - b'0') * 64 + (b[i + 2] - b'0') * 8 + (b[i + 3] - b'0'));
+            i += 4;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Dischi/partizioni/condivisioni attualmente montati (esclusi filesystem di sistema).
+pub fn mounted_disks() -> Vec<Disk> {
+    let Ok(txt) = std::fs::read_to_string("/proc/self/mounts") else { return Vec::new() };
+    // etichette dei volumi: /dev/disk/by-label/<label> -> /dev/sdXN
+    let mut labels: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Ok(rd) = std::fs::read_dir("/dev/disk/by-label") {
+        for e in rd.flatten() {
+            if let Ok(t) = std::fs::canonicalize(e.path()) {
+                let raw = e.file_name().to_string_lossy().replace("\\x20", " ");
+                labels.insert(t.to_string_lossy().into_owned(), raw);
+            }
+        }
+    }
+    // spazio totale/libero per tutti i mount con una sola chiamata a df
+    let mut space: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    if let Ok(out) = std::process::Command::new("df").args(["-P", "-B1"]).output() {
+        for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f.len() >= 6 {
+                space.insert(f[5..].join(" "), (f[1].parse().unwrap_or(0), f[3].parse().unwrap_or(0)));
+            }
+        }
+    }
+    const SKIP_PREFIX: [&str; 9] = ["/boot", "/snap", "/var", "/etc", "/usr", "/proc", "/sys", "/dev", "/run/user"];
+    const NET: [&str; 6] = ["nfs", "nfs4", "cifs", "smb3", "fuse.sshfs", "davfs"];
+    let mut v: Vec<Disk> = Vec::new();
+    for line in txt.lines() {
+        let f: Vec<&str> = line.split(' ').collect();
+        if f.len() < 3 {
+            continue;
+        }
+        let (dev, mp, fstype) = (f[0], unescape_mount(f[1]), f[2]);
+        let block = dev.starts_with("/dev/") && !matches!(fstype, "squashfs" | "iso9660" | "udf");
+        let wanted = block || NET.contains(&fstype) || matches!(fstype, "fuse.exfat" | "fuseblk" | "ntfs3" | "fuse.ntfs-3g");
+        if !wanted || mp == "/" || SKIP_PREFIX.iter().any(|p| mp == *p || mp.starts_with(&format!("{p}/"))) {
+            continue;
+        }
+        if !Path::new(&mp).is_dir() || v.iter().any(|d| d.mount == mp) {
+            continue;
+        }
+        let real = std::fs::canonicalize(dev).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| dev.to_string());
+        let name = labels
+            .get(&real)
+            .cloned()
+            .unwrap_or_else(|| mp.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or(&mp).to_string());
+        let (total, avail) = space.get(&mp).copied().unwrap_or((0, 0));
+        v.push(Disk { mount: mp, name, total, avail });
+    }
     v
 }
 

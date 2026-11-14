@@ -263,6 +263,18 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
+        "disks" => {
+            for d in places::mounted_disks() {
+                println!(
+                    "{:<24} {:>10} liberi di {:>10}  {}",
+                    d.name,
+                    humanize(d.avail),
+                    humanize(d.total),
+                    d.mount
+                );
+            }
+            Ok(())
+        }
         "mkdir" => {
             let p = rest.first().ok_or_else(|| anyhow::anyhow!("uso: abt mkdir <remoto>"))?;
             let mut a = Adb::new(adb_bin());
@@ -458,6 +470,7 @@ USO:\n\
 \n\
 FILE E CARTELLE (sul device):\n\
   abt ls [-l] [<remoto>]             elenco (default /sdcard)\n\
+  abt disks                          dischi montati sul computer (destinazioni per i backup)\n\
   abt pull <remoto>... [<locale>]    copia dal device (default ~/Android_Backup/Backup) [--verify]\n\
   abt push <locale>... <remoto>      copia sul device (cartella creata se manca)\n\
   abt sync <remoto> <locale>         mirror incrementale [--delete]\n\
