@@ -83,6 +83,14 @@ momento per l'elenco completo dei comandi.
 | `x`                       | annulla il trasferimento attivo                          |
 | `q` / `Ctrl+C`            | esci                                                     |
 
+**Aspetto.** I due pannelli hanno colori distinti: **blu = computer (Locale)**, **verde = device
+Android**. Il pannello attivo ha il titolo evidenziato (`LOCALE`/`DEVICE`), il bordo colorato e il
+cursore pieno `▌`; quello inattivo resta tenue con un cursore appena visibile. In alto a destra
+trovi sempre quale pannello è attivo. I file hanno icona e colore per tipo (cartelle, immagini,
+video, audio, archivi, APK, documenti), le voci marcate sono in giallo con `●`, e i
+trasferimenti mostrano una barra di avanzamento. Serve un terminale con colori a 24 bit
+(praticamente tutti quelli moderni).
+
 **Mouse.** Click sinistro seleziona (doppio click: apre la cartella o trasferisce il file),
 la rotella scorre. **Click destro** (o `m` da tastiera) apre il menu contestuale sulla voce
 sotto il cursore: apri, copia (→ altro pannello), marca, rinomina, elimina; e sulla cartella
