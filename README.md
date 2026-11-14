@@ -71,6 +71,7 @@ momento per l'elenco completo dei comandi.
 | `a` · `*` · `Esc`         | seleziona tutto · inverti · azzera                       |
 | `y`                       | pull device → locale                                     |
 | `p`                       | push locale → device                                     |
+| `T`                       | trasferisce l'**intera cartella corrente** (anche `y`/`p` sulla voce `..`) |
 | `s`                       | mirror incrementale della cartella device → locale       |
 | `n` / `F7`                | nuova cartella                                           |
 | `R` / `F2`                | rinomina                                                 |
