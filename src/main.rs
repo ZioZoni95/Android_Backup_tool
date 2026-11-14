@@ -39,35 +39,34 @@ fn adb_bin() -> String {
     std::env::var("ADB_BIN").unwrap_or_else(|_| "adb".into())
 }
 
-/// Estrae `-s SERIAL` / `--serial SERIAL` e `--verify` / `--delete`.
-fn parse_args(mut args: Vec<String>) -> (Option<String>, bool, bool, Vec<String>) {
-    let mut serial = None;
-    let mut verify = false;
-    let mut delete = false;
+/// Opzioni globali della CLI.
+#[derive(Default)]
+struct Opts {
+    serial: Option<String>,
+    verify: bool,
+    delete: bool,
+    yes: bool,
+    long: bool,
+    out: Option<String>,
+}
+
+/// Estrae le opzioni (`-s`, `--verify`, `--delete`, `-y`, `-l`, `-o`) dagli argomenti.
+fn parse_args(args: Vec<String>) -> (Opts, Vec<String>) {
+    let mut o = Opts::default();
     let mut rest = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "-s" | "--serial" if i + 1 < args.len() => {
-                serial = Some(args[i + 1].clone());
-                i += 2;
-                continue;
-            }
-            "--verify" => {
-                verify = true;
-                i += 1;
-                continue;
-            }
-            "--delete" => {
-                delete = true;
-                i += 1;
-                continue;
-            }
-            _ => {}
+    let mut it = args.into_iter().peekable();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-s" | "--serial" if it.peek().is_some() => o.serial = it.next(),
+            "-o" | "--out" if it.peek().is_some() => o.out = it.next(),
+            "--verify" => o.verify = true,
+            "--delete" => o.delete = true,
+            "-y" | "--yes" => o.yes = true,
+            "-l" => o.long = true,
+            _ => rest.push(a),
         }
-        rest.push(args.remove(i));
     }
-    (serial, verify, delete, rest)
+    (o, rest)
 }
 
 fn resolve_serial(adb: &mut Adb, want: Option<String>) -> Result<()> {
@@ -161,7 +160,8 @@ fn run() -> Result<()> {
     if argv.is_empty() {
         return tui();
     }
-    let (serial, verify, delete, rest) = parse_args(argv);
+    let (opts, rest) = parse_args(argv);
+    let (serial, verify, delete) = (opts.serial.clone(), opts.verify, opts.delete);
     let cmd = rest.first().cloned().unwrap_or_else(|| "help".into());
     let rest: Vec<String> = rest.into_iter().skip(1).collect();
 
@@ -197,40 +197,151 @@ fn run() -> Result<()> {
             Ok(())
         }
         "pull" => {
-            let (src, dst) = two_args(&rest)?;
+            // abt pull <remoto>... [<locale>]   (-o DIR per la destinazione; default ~/Android_Backup/Backup)
+            let (srcs, dst) = split_dest(&rest, opts.out.clone(), true)?;
             let mut a = Adb::new(adb_bin());
             resolve_serial(&mut a, serial)?;
-            let sink = CliSink::new(format!("pull {src}"));
             let flag = new_flag();
-            if device_fs::is_dir(&a, &src)? {
-                transfer::pull_dir(&a, &src, &dst, &flag, &sink)?;
-            } else {
-                let dst = if std::path::Path::new(&dst).is_dir() {
-                    let name = src.rsplit('/').next().unwrap_or(&src);
-                    format!("{}/{}", dst.trim_end_matches('/'), name)
+            for src in &srcs {
+                let sink = CliSink::new(format!("pull {src}"));
+                if device_fs::is_dir(&a, src)? {
+                    transfer::pull_dir(&a, src, &dst, &flag, &sink)?;
                 } else {
-                    dst.clone()
-                };
-                transfer::pull_file(&a, &src, &dst, verify, &flag, &sink)?;
+                    let name = src.rsplit('/').next().unwrap_or(src);
+                    let target = format!("{}/{}", dst.trim_end_matches('/'), name);
+                    transfer::pull_file(&a, src, &target, verify, &flag, &sink)?;
+                }
+                sink.print(true);
+                eprintln!();
             }
-            sink.print(true);
-            eprintln!();
+            println!("{} elementi → {dst}", srcs.len());
             Ok(())
         }
         "push" => {
-            let (src, dst) = two_args(&rest)?;
+            // abt push <locale>... <cartella-remota>
+            if rest.len() < 2 {
+                bail!("uso: abt push <locale>... <cartella-remota>");
+            }
+            let (dst, srcs) = rest.split_last().unwrap();
             let mut a = Adb::new(adb_bin());
             resolve_serial(&mut a, serial)?;
-            let sink = CliSink::new(format!("push {src}"));
+            device_fs::mkdir_device(&a, dst)?;
             let flag = new_flag();
-            let md = std::fs::metadata(&src)?;
-            if md.is_dir() {
-                transfer::push_dir(&a, &src, &dst, &flag, &sink)?;
-            } else {
-                transfer::push_file(&a, &src, &dst, &flag, &sink)?;
+            for src in srcs {
+                let sink = CliSink::new(format!("push {src}"));
+                if std::fs::metadata(src)?.is_dir() {
+                    transfer::push_dir(&a, src, dst, &flag, &sink)?;
+                } else {
+                    transfer::push_file(&a, src, dst, &flag, &sink)?;
+                }
+                sink.print(true);
+                eprintln!();
             }
-            sink.print(true);
-            eprintln!();
+            println!("{} elementi → {dst}", srcs.len());
+            Ok(())
+        }
+        "ls" => {
+            let path = rest.first().cloned().unwrap_or_else(|| "/sdcard".into());
+            let mut a = Adb::new(adb_bin());
+            resolve_serial(&mut a, serial)?;
+            let mut v = device_fs::list(&a, &path)?;
+            v.retain(|e| e.name != "..");
+            for e in v {
+                if opts.long {
+                    println!(
+                        "{} {:>9}  {}  {}{}",
+                        if e.is_dir { "d" } else { "-" },
+                        if e.is_dir { "—".to_string() } else { humanize(e.size) },
+                        util::fmt_date(e.mtime),
+                        e.name,
+                        if e.is_dir { "/" } else { "" }
+                    );
+                } else {
+                    println!("{}{}", e.name, if e.is_dir { "/" } else { "" });
+                }
+            }
+            Ok(())
+        }
+        "mkdir" => {
+            let p = rest.first().ok_or_else(|| anyhow::anyhow!("uso: abt mkdir <remoto>"))?;
+            let mut a = Adb::new(adb_bin());
+            resolve_serial(&mut a, serial)?;
+            device_fs::mkdir_device(&a, p)?;
+            println!("creata {p}");
+            Ok(())
+        }
+        "mv" | "rename" => {
+            let (old, new) = two_args(&rest)?;
+            let mut a = Adb::new(adb_bin());
+            resolve_serial(&mut a, serial)?;
+            device_fs::rename_device(&a, &old, &new)?;
+            println!("{old} → {new}");
+            Ok(())
+        }
+        "rm" => {
+            if rest.is_empty() {
+                bail!("uso: abt rm [-y] <remoto>...");
+            }
+            let mut a = Adb::new(adb_bin());
+            resolve_serial(&mut a, serial)?;
+            if !opts.yes {
+                eprint!("Eliminare DAL DEVICE {} (irreversibile)? [s/N] ", rest.join(", "));
+                let mut l = String::new();
+                std::io::stdin().read_line(&mut l)?;
+                if !matches!(l.trim().to_lowercase().as_str(), "s" | "si" | "sì" | "y" | "yes") {
+                    bail!("annullato");
+                }
+            }
+            for p in &rest {
+                device_fs::rm_device(&a, p)?;
+                println!("eliminato {p}");
+            }
+            Ok(())
+        }
+        "backup" => {
+            // abt backup [-o DIR] [<remoto>...]  — sync incrementale delle cartelle comuni + SMS/chiamate
+            let out = match opts.out.clone() {
+                Some(o) => o,
+                None => util::default_backup_dir().map_err(|e| anyhow::anyhow!(e))?,
+            };
+            let defaults = ["/sdcard/DCIM", "/sdcard/Pictures", "/sdcard/Documents", "/sdcard/Download", "/sdcard/WhatsApp"];
+            let srcs: Vec<String> = if rest.is_empty() {
+                defaults.iter().map(|s| s.to_string()).collect()
+            } else {
+                rest.clone()
+            };
+            let mut a = Adb::new(adb_bin());
+            resolve_serial(&mut a, serial)?;
+            let flag = new_flag();
+            for src in &srcs {
+                if !device_fs::is_dir(&a, src).unwrap_or(false) {
+                    eprintln!("salto {src}: non esiste");
+                    continue;
+                }
+                let name = src.rsplit('/').next().unwrap_or(src);
+                let dst = format!("{}/{name}", out.trim_end_matches('/'));
+                let sink = CliSink::new(format!("backup {src}"));
+                let st = transfer::sync_mirror(&a, src, &dst, delete, &flag, &sink)?;
+                sink.print(true);
+                eprintln!();
+                println!("{src}: {} file nuovi/aggiornati, {}", st.files, humanize(st.bytes));
+            }
+            if rest.is_empty() {
+                for (c, f) in [("sms", "sms.jsonl"), ("calllog", "calllog.jsonl")] {
+                    let path = format!("{}/{f}", out.trim_end_matches('/'));
+                    let sink = CliSink::new(c);
+                    let r = if c == "sms" {
+                        actions::export_sms(&a, &path, &flag, &sink)
+                    } else {
+                        actions::export_calllog(&a, &path, &flag, &sink)
+                    };
+                    match r {
+                        Ok(n) => println!("{c}: {n} record → {path}"),
+                        Err(e) => eprintln!("{c}: {e}"),
+                    }
+                }
+            }
+            println!("backup in {out}");
             Ok(())
         }
         "sync" => {
@@ -303,6 +414,27 @@ fn run() -> Result<()> {
     }
 }
 
+/// Separa sorgenti e destinazione: ultimo argomento = destinazione se ≥ 2 argomenti,
+/// altrimenti `-o` o la cartella di default.
+fn split_dest(rest: &[String], out: Option<String>, local: bool) -> Result<(Vec<String>, String)> {
+    if rest.is_empty() {
+        bail!("uso: abt pull <remoto>... [<locale>]");
+    }
+    if let Some(o) = out {
+        return Ok((rest.to_vec(), o));
+    }
+    if rest.len() >= 2 {
+        let (d, s) = rest.split_last().unwrap();
+        return Ok((s.to_vec(), d.clone()));
+    }
+    let d = if local {
+        util::default_backup_dir().map_err(|e| anyhow::anyhow!(e))?
+    } else {
+        "/sdcard".into()
+    };
+    Ok((rest.to_vec(), d))
+}
+
 fn two_args(rest: &[String]) -> Result<(String, String)> {
     if rest.len() < 2 {
         bail!("servono due argomenti <sorgente> <destinazione>");
@@ -311,6 +443,9 @@ fn two_args(rest: &[String]) -> Result<(String, String)> {
 }
 
 fn print_help() {
+    for l in util::LOGO {
+        println!("\x1b[32m{l}\x1b[0m");
+    }
     println!(
         "abt — Android Backup Tool (TUI + CLI via adb, alternativa a MTP)\n\
 \n\
@@ -319,18 +454,24 @@ USO:\n\
   abt devices                        elenco device collegati\n\
   abt connect IP:5555                collega device via Wi-Fi\n\
   abt wifi                           adbd del device -> modalità tcpip (via USB)\n\
-  abt pull  <remoto> <locale> [--verify]     copia dal device\n\
-  abt push  <locale> <remoto>                copia sul device\n\
-  abt sync  <remoto> <locale> [--delete]     mirror incrementale\n\
-  abt apk  list | apk pull <pkg> <outdir>    backup APK\n\
+\n\
+FILE E CARTELLE (sul device):\n\
+  abt ls [-l] [<remoto>]             elenco (default /sdcard)\n\
+  abt pull <remoto>... [<locale>]    copia dal device (default ~/Android_Backup/Backup) [--verify]\n\
+  abt push <locale>... <remoto>      copia sul device (cartella creata se manca)\n\
+  abt sync <remoto> <locale>         mirror incrementale [--delete]\n\
+  abt mkdir <remoto> · mv <da> <a> · rm [-y] <remoto>...\n\
+\n\
+BACKUP:\n\
+  abt backup [-o DIR] [<remoto>...]  sync di DCIM/Pictures/Documents/Download/WhatsApp + SMS/chiamate\n\
+  abt apk list | apk pull <pkg> <outdir>     backup APK\n\
   abt sms <out.jsonl> | calllog <out.jsonl>  backup SMS / registro chiamate\n\
   abt appdata <pkg> <outdir>                 dati privati app (root/run-as)\n\
 \n\
-Opzioni: -s SERIAL | --serial SERIAL   ·   ADB_BIN=/percorso/adb per binario custom\n\
+Opzioni: -s SERIAL · -o DIR (destinazione) · -y (niente conferma) · ADB_BIN=/percorso/adb\n\
+Cartella di default: $ABT_BACKUP_DIR oppure ~/Android_Backup/Backup\n\
 \n\
-TUI: Tab pannello · j/k o ↑↓ naviga · Invio apri (dir) / trasferisci (file) ·\n\
-     Spazio marca · a tutto · y pull · p push · s sync · d elimina · n mkdir ·\n\
-     r aggiorna · S SMS+chiamate · x annulla job · q esci"
+TUI: premi ? per l'elenco completo dei comandi"
     );
 }
 

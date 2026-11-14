@@ -14,7 +14,7 @@ fn sel_style(active: bool) -> Style {
     if active {
         Style::default().fg(Color::Cyan)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(Color::Gray)
     }
 }
 
@@ -44,6 +44,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     match &app.screen {
         Screen::Devices { sel } => draw_devices(f, app, *sel),
         Screen::Files => draw_files(f, app),
+        Screen::Help => {
+            draw_files(f, app);
+            draw_help(f);
+        }
         Screen::Confirm { .. } | Screen::Input { .. } => {
             draw_files(f, app);
             draw_dialog(f, app);
@@ -66,8 +70,80 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
 
 fn footer(f: &mut Frame, area: Rect, text: &str) {
     let w = area.width as usize;
-    let line = Line::from(Span::styled(trunc(text, w.saturating_sub(1)), Style::default().fg(Color::DarkGray)));
+    let line = Line::from(Span::styled(trunc(text, w.saturating_sub(1)), Style::default().fg(Color::Gray)));
     f.render_widget(Paragraph::new(line), area);
+}
+
+/// Barra comandi: tasto evidenziato + etichetta, su più righe.
+fn hints(f: &mut Frame, area: Rect, rows: &[&[(&str, &str)]]) {
+    let lines: Vec<Line> = rows
+        .iter()
+        .map(|row| {
+            let mut spans = vec![Span::raw(" ")];
+            for (k, l) in row.iter() {
+                spans.push(Span::styled(
+                    format!(" {k} "),
+                    Style::default().fg(Color::Black).bg(Color::Cyan),
+                ));
+                spans.push(Span::styled(format!(" {l}  "), Style::default().fg(Color::Gray)));
+            }
+            Line::from(spans)
+        })
+        .collect();
+    f.render_widget(Paragraph::new(lines), area);
+}
+
+fn draw_help(f: &mut Frame) {
+    let area = centered_rect(80, 85, f.area());
+    f.render_widget(Clear, area);
+    let rows: &[(&str, &str)] = &[
+        ("NAVIGAZIONE", ""),
+        ("Tab / Shift+Tab", "cambia pannello"),
+        ("↑↓  j k   PgUp PgDn", "muovi cursore · g/G inizio/fine"),
+        ("→ l   ← h Backspace", "entra in cartella · cartella padre"),
+        ("Invio", "cartella: entra · file: trasferisce nell'altro pannello"),
+        ("/", "filtra per nome (Esc rimuove il filtro)"),
+        ("o   .", "ordina nome/dimensione/data · mostra nascosti"),
+        ("r", "aggiorna pannello"),
+        ("SELEZIONE", ""),
+        ("Spazio / Ins", "marca/smarca e scende · J/K o Shift+↑↓ estendi"),
+        ("a   *   Esc", "seleziona tutto · inverti · azzera selezione"),
+        ("FILE E CARTELLE", ""),
+        ("y   p", "pull / push: chiede la cartella di destinazione (Invio conferma)"),
+        ("s", "sync incrementale della cartella device → locale"),
+        ("n  (F7)", "nuova cartella"),
+        ("R  (F2)", "rinomina"),
+        ("d  (Canc)", "elimina (con conferma)"),
+        ("ALTRO", ""),
+        ("S", "esporta SMS + registro chiamate"),
+        ("x", "annulla il trasferimento attivo"),
+        ("q  Ctrl+C", "esci"),
+    ];
+    let lines: Vec<Line> = rows
+        .iter()
+        .map(|(k, l)| {
+            if l.is_empty() {
+                Line::from(Span::styled(
+                    format!(" {k}"),
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                ))
+            } else {
+                Line::from(vec![
+                    Span::styled(format!("   {:<24}", k), Style::default().fg(Color::Cyan)),
+                    Span::raw((*l).to_string()),
+                ])
+            }
+        })
+        .collect();
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(" Comandi — qualsiasi tasto per chiudere "),
+        ),
+        area,
+    );
 }
 
 fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
@@ -78,13 +154,36 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
         .split(area);
     header(f, chunks[0], app);
 
+    let mut main_area = chunks[1];
+    if main_area.height >= 18 {
+        let logo: Vec<Line> = crate::util::LOGO
+            .iter()
+            .map(|l| Line::from(Span::styled(*l, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))))
+            .chain(std::iter::once(Line::from(Span::styled(
+                "Android Backup Tool",
+                Style::default().fg(Color::Green),
+            ))))
+            .collect();
+        let lr = Rect { x: main_area.x, y: main_area.y, width: main_area.width, height: crate::util::LOGO.len() as u16 + 1 };
+        f.render_widget(
+            Paragraph::new(logo).alignment(ratatui::layout::Alignment::Center),
+            lr,
+        );
+        main_area = Rect {
+            x: main_area.x,
+            y: main_area.y + crate::util::LOGO.len() as u16 + 2,
+            width: main_area.width,
+            height: main_area.height - (crate::util::LOGO.len() as u16 + 2),
+        };
+    }
+
     if app.devices.is_empty() {
         let msg = "nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555";
         f.render_widget(
             Paragraph::new(msg)
                 .alignment(ratatui::layout::Alignment::Center)
                 .wrap(Wrap { trim: true }),
-            chunks[1],
+            main_area,
         );
     } else {
         let items: Vec<ListItem> = app
@@ -111,7 +210,7 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
         let list = List::new(items)
             .block(Block::default().borders(Borders::ALL).title(" Seleziona device "))
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
-        f.render_stateful_widget(list, chunks[1], &mut ls);
+        f.render_stateful_widget(list, main_area, &mut ls);
     }
     footer(
         f,
@@ -129,7 +228,7 @@ fn draw_files(f: &mut Frame, app: &mut App) {
             Constraint::Min(4),
             Constraint::Length(5),
             Constraint::Length(4),
-            Constraint::Length(1),
+            Constraint::Length(2),
         ])
         .split(area);
     header(f, chunks[0], app);
@@ -143,17 +242,20 @@ fn draw_files(f: &mut Frame, app: &mut App) {
     match app.remote.as_mut() {
         Some(r) => draw_pane(f, panes[1], r, !active_local, "Device"),
         None => {
-            let b = Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray));
+            let b = Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Gray));
             f.render_widget(Paragraph::new("").block(b), panes[1]);
         }
     }
 
     draw_transfers(f, chunks[2], app);
     draw_log(f, chunks[3], app);
-    footer(
+    hints(
         f,
         chunks[4],
-        "Tab pannello · ↑↓/j-k · Invio apri/trasferisci · Spazio marca · a tutto · y pull · p push · s sync · d elimina · n mkdir · r aggiorna · S SMS/chiamate · x annulla · q esci",
+        &[
+            &[("Tab", "pannello"), ("Spazio", "marca"), ("y", "pull"), ("p", "push"), ("s", "sync"), ("n", "nuova cart."), ("R", "rinomina"), ("d", "elimina")],
+            &[("/", "filtro"), ("o", "ordina"), (".", "nascosti"), ("a", "tutto"), ("*", "inverti"), ("S", "SMS"), ("x", "annulla"), ("?", "aiuto"), ("q", "esci")],
+        ],
     );
 }
 
@@ -166,10 +268,29 @@ fn draw_pane(f: &mut Frame, area: Rect, p: &mut crate::app::Pane, active: bool, 
     if p.loading {
         title.push_str("⏳");
     }
+    if !p.marked.is_empty() {
+        let total: u64 = p
+            .entries
+            .iter()
+            .filter(|e| !e.is_dir && p.marked.iter().any(|m| m.path == e.full))
+            .map(|e| e.size)
+            .sum();
+        title.push_str(&format!("[✓ {} · {}] ", p.marked.len(), humanize(total)));
+    }
+    if !p.filter.is_empty() {
+        title.push_str(&format!("[/{}] ", p.filter));
+    }
+    let bottom = format!(
+        " {} voci · ord: {}{} ",
+        p.entries.iter().filter(|e| e.name != "..").count(),
+        p.sort.label(),
+        if p.show_hidden { " · nascosti" } else { "" }
+    );
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(sel_style(active))
-        .title(title);
+        .title(title)
+        .title_bottom(bottom);
 
     if let Some(err) = &p.error {
         let text = format!("{err}");
@@ -202,7 +323,7 @@ fn draw_pane(f: &mut Frame, area: Rect, p: &mut crate::app::Pane, active: bool, 
                 Span::raw("  "),
                 Span::styled(size, Style::default().fg(Color::Cyan)),
                 Span::raw("  "),
-                Span::styled(date, Style::default().fg(Color::DarkGray)),
+                Span::styled(date, Style::default().fg(Color::Gray)),
             ]))
         })
         .collect();

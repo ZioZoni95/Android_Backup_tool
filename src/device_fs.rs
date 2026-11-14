@@ -81,7 +81,7 @@ pub fn list(adb: &Adb, dir: &str) -> Result<Vec<Entry>> {
     }
 
     let all = nul_split(&adb.exec_out_collect(&format!(
-        "toybox find {} -maxdepth 1 -print0",
+        "toybox find -H {} -maxdepth 1 -print0",
         sh_quote(dir)
     ))?);
     let dirs: HashSet<String> = nul_split(&adb.exec_out_collect(&format!(
@@ -91,7 +91,7 @@ pub fn list(adb: &Adb, dir: &str) -> Result<Vec<Entry>> {
     .into_iter()
     .collect();
     let stat_raw = adb.exec_out_collect(&format!(
-        "toybox find {} -maxdepth 1 -print0 | toybox xargs -0 -n 32 toybox stat -c '%s|%Y|%n'",
+        "toybox find -H {} -maxdepth 1 -print0 | toybox xargs -0 -n 32 toybox stat -c '%s|%Y|%n'",
         sh_quote(dir)
     ))?;
     let mut detail: HashMap<String, (u64, i64)> = HashMap::new();
@@ -193,5 +193,31 @@ pub fn delete_local(p: &str) -> Result<()> {
     } else {
         fs::remove_file(path)?;
     }
+    Ok(())
+}
+
+/// Rinomina/sposta sul device (rifiuta la sovrascrittura).
+pub fn rename_device(adb: &Adb, old: &str, new: &str) -> Result<()> {
+    safe_path(old)?;
+    safe_path(new)?;
+    let out = adb.shell(&format!(
+        "[ -e {n} ] && echo __EXISTS__ || toybox mv {o} {n}",
+        o = sh_quote(old),
+        n = sh_quote(new)
+    ))?;
+    if out.contains("__EXISTS__") {
+        bail!("esiste già un elemento con quel nome");
+    }
+    Ok(())
+}
+
+/// Rinomina locale (rifiuta la sovrascrittura).
+pub fn rename_local(old: &str, new: &str) -> Result<()> {
+    safe_path(old)?;
+    safe_path(new)?;
+    if Path::new(new).exists() {
+        bail!("esiste già un elemento con quel nome");
+    }
+    fs::rename(old, new)?;
     Ok(())
 }

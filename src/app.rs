@@ -33,6 +33,7 @@ pub enum Screen {
         value: String,
         action: InputAction,
     },
+    Help,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +45,35 @@ pub enum ConfirmAction {
 #[derive(Debug, Clone)]
 pub enum InputAction {
     Mkdir(Side),
+    Rename(Side, String),
+    Filter(Side),
     Connect,
+    /// Trasferimento dal pannello indicato (destinazione editabile).
+    Transfer(Side),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortMode {
+    Name,
+    Size,
+    Date,
+}
+
+impl SortMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            SortMode::Name => "nome",
+            SortMode::Size => "dimensione",
+            SortMode::Date => "data",
+        }
+    }
+    fn next(self) -> Self {
+        match self {
+            SortMode::Name => SortMode::Size,
+            SortMode::Size => SortMode::Date,
+            SortMode::Date => SortMode::Name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -56,6 +85,12 @@ pub struct MarkedItem {
 pub struct Pane {
     pub cwd: String,
     pub entries: Vec<Entry>,
+    /// Elenco completo non filtrato (la vista `entries` è derivata da qui).
+    pub raw: Vec<Entry>,
+    pub sort: SortMode,
+    pub show_hidden: bool,
+    pub filter: String,
+    pub goto_name: Option<String>,
     pub sel: usize,
     pub marked: HashSet<MarkedItem>,
     pub list_state: ListState,
@@ -68,6 +103,11 @@ impl Pane {
         Self {
             cwd,
             entries: Vec::new(),
+            raw: Vec::new(),
+            sort: SortMode::Name,
+            show_hidden: false,
+            filter: String::new(),
+            goto_name: None,
             sel: 0,
             marked: HashSet::new(),
             list_state: ListState::default(),
@@ -108,15 +148,65 @@ fn clamp_sel(p: &mut Pane) {
     p.list_state.select(Some(p.sel));
 }
 
-fn apply_entries(p: &mut Pane, entries: Vec<Entry>) {
+/// Ricalcola la vista (nascosti, filtro, ordinamento) da `raw`,
+/// mantenendo il cursore sulla stessa voce se ancora presente.
+pub fn rebuild(p: &mut Pane) {
     let cur = p.selected().map(|e| e.name.clone());
-    p.entries = entries;
-    p.error = None;
-    p.loading = false;
+    let needle = p.filter.to_lowercase();
+    let mut dotdot: Vec<Entry> = Vec::new();
+    let mut v: Vec<Entry> = Vec::new();
+    for e in &p.raw {
+        if e.name == ".." {
+            dotdot.push(e.clone());
+            continue;
+        }
+        if !p.show_hidden && e.name.starts_with('.') {
+            continue;
+        }
+        if !needle.is_empty() && !e.name.to_lowercase().contains(&needle) {
+            continue;
+        }
+        v.push(e.clone());
+    }
+    let mode = p.sort;
+    v.sort_by(|a, b| {
+        b.is_dir.cmp(&a.is_dir).then_with(|| match mode {
+            SortMode::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            SortMode::Size => b.size.cmp(&a.size).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            SortMode::Date => b.mtime.cmp(&a.mtime).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+        })
+    });
+    dotdot.extend(v);
+    p.entries = dotdot;
     p.sel = cur
         .and_then(|n| p.entries.iter().position(|e| e.name == n))
         .unwrap_or(0);
     clamp_sel(p);
+}
+
+fn apply_entries(p: &mut Pane, entries: Vec<Entry>) {
+    p.raw = entries;
+    p.error = None;
+    p.loading = false;
+    rebuild(p);
+    if let Some(n) = p.goto_name.take() {
+        if let Some(i) = p.entries.iter().position(|e| e.name == n) {
+            p.sel = i;
+            clamp_sel(p);
+        }
+    }
+}
+
+fn default_backup_dir(log: &mut VecDeque<String>) -> String {
+    match crate::util::default_backup_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            log.push_back(format!("⚠ cartella backup: {e}"));
+            std::env::current_dir()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "/".into())
+        }
+    }
 }
 
 impl App {
@@ -132,9 +222,7 @@ impl App {
                 log.push_back("⚠ installa adb (es. `apt install adb`) o imposta ADB_BIN".into());
             }
         }
-        let cwd = std::env::current_dir()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| "/".into());
+        let cwd = default_backup_dir(&mut log);
         let local = Pane::new(cwd);
         Self {
             adb,
@@ -325,8 +413,16 @@ impl App {
             return;
         }
         if let Some(p) = self.pane(side) {
+            // risalendo, il cursore torna sulla cartella da cui si proviene
+            let from = dev_basename(&p.cwd).to_string();
             p.cwd = parent;
             p.marked.clear();
+            p.filter.clear();
+            p.entries.clear();
+            p.raw.clear();
+            p.sel = 0;
+            p.list_state.select(Some(0));
+            p.goto_name = Some(from);
         }
         self.refresh(side);
     }
@@ -338,8 +434,16 @@ impl App {
             let Some(p) = self.pane(side) else { return };
             let Some(e) = p.selected().cloned() else { return };
             if e.is_dir {
+                if e.name == ".." {
+                    p.goto_name = Some(dev_basename(&p.cwd).to_string());
+                }
                 p.cwd = e.full.clone();
                 p.marked.clear();
+                p.filter.clear();
+                p.sel = 0;
+                p.raw.clear();
+                p.entries.clear();
+                p.list_state.select(Some(0));
             }
             e.is_dir
         };
@@ -350,6 +454,29 @@ impl App {
                 Side::Remote => self.pull_jobs(),
                 Side::Local => self.push_jobs(),
             }
+        }
+    }
+
+    /// `→`/`l`: entra solo se è una directory (non avvia trasferimenti).
+    pub fn enter_dir_only(&mut self) {
+        let is_dir = self
+            .pane(self.active)
+            .and_then(|p| p.selected().map(|e| e.is_dir))
+            .unwrap_or(false);
+        if is_dir {
+            self.enter();
+        }
+    }
+
+    fn toggle_mark_stay(&mut self) {
+        let Some(p) = self.pane(self.active) else { return };
+        let Some(e) = p.selected().cloned() else { return };
+        if e.name == ".." {
+            return;
+        }
+        let item = MarkedItem { path: e.full, is_dir: e.is_dir };
+        if !p.marked.remove(&item) {
+            p.marked.insert(item);
         }
     }
 
@@ -366,6 +493,7 @@ impl App {
         if !p.marked.remove(&item) {
             p.marked.insert(item);
         }
+        self.move_sel(1);
     }
 
     /// Seleziona/deseleziona tutto (tranne "..").
@@ -411,13 +539,61 @@ impl App {
 
     /// `y`: accoda il pull (device -> locale) di selezione/marcature del pannello remoto.
     pub fn pull_jobs(&mut self) {
-        let Some(queue) = self.queue.clone() else { return };
-        let items = self.selection_items(Side::Remote);
+        self.transfer_request(Side::Remote);
+    }
+
+    /// Dialogo di trasferimento: riepilogo + cartella di destinazione modificabile
+    /// (precompilata con la cartella dell'altro pannello).
+    fn transfer_request(&mut self, from: Side) {
+        if self.queue.is_none() {
+            self.log("⚠ collega prima un device");
+            return;
+        }
+        let items = self.selection_items(from);
         if items.is_empty() {
             self.log("niente da trasferire: seleziona o marca qualche voce (spazio)");
             return;
         }
-        let local_cwd = self.local.cwd.trim_end_matches('/').to_string();
+        let (dirs, files) = (
+            items.iter().filter(|i| i.is_dir).count(),
+            items.iter().filter(|i| !i.is_dir).count(),
+        );
+        let src_pane = if from == Side::Local { Some(&self.local) } else { self.remote.as_ref() };
+        let bytes: u64 = src_pane
+            .map(|p| {
+                p.entries
+                    .iter()
+                    .filter(|e| !e.is_dir && items.iter().any(|i| i.path == e.full))
+                    .map(|e| e.size)
+                    .sum()
+            })
+            .unwrap_or(0);
+        let dest = match from {
+            Side::Remote => self.local.cwd.clone(),
+            Side::Local => match self.remote.as_ref() {
+                Some(r) => r.cwd.clone(),
+                None => return,
+            },
+        };
+        let (verb, arrow) = if from == Side::Remote { ("Pull", "→ locale") } else { ("Push", "→ device") };
+        self.screen = Screen::Input {
+            title: format!(
+                "{verb} {arrow}: {dirs} cartelle, {files} file (≥ {}) — cartella di destinazione",
+                crate::util::humanize(bytes)
+            ),
+            value: dest,
+            action: InputAction::Transfer(from),
+        };
+    }
+
+    fn pull_to(&mut self, local_cwd: String) {
+        let Some(queue) = self.queue.clone() else { return };
+        let items = self.selection_items(Side::Remote);
+        let local_cwd = local_cwd.trim_end_matches('/').to_string();
+        if let Err(e) = std::fs::create_dir_all(&local_cwd) {
+            self.log(format!("⚠ destinazione {local_cwd}: {e}"));
+            return;
+        }
         let mut n = 0;
         for it in items {
             let name = dev_basename(&it.path).to_string();
@@ -432,19 +608,26 @@ impl App {
             ));
             n += 1;
         }
-        self.log(format!("accodati {n} pull → {}", self.local.cwd));
+        self.log(format!("accodati {n} pull → {local_cwd}"));
     }
 
     /// `p`: accoda il push (locale -> device) di selezione/marcature del pannello locale.
     pub fn push_jobs(&mut self) {
+        self.transfer_request(Side::Local);
+    }
+
+    fn push_to(&mut self, dst_dir: String) {
         let Some(queue) = self.queue.clone() else { return };
-        let Some(remote) = self.remote.as_ref() else { return };
         let items = self.selection_items(Side::Local);
-        if items.is_empty() {
-            self.log("niente da trasferire: seleziona o marca qualche voce (spazio)");
+        let dst_dir = dst_dir.trim_end_matches('/').to_string();
+        if dst_dir.is_empty() {
+            self.log("⚠ destinazione non valida");
             return;
         }
-        let dst_dir = remote.cwd.clone();
+        if let Err(e) = device_fs::mkdir_device(&self.adb, &dst_dir) {
+            self.log(format!("⚠ destinazione {dst_dir}: {e}"));
+            return;
+        }
         let mut n = 0;
         for it in items {
             let name = Path::new(&it.path)
@@ -516,11 +699,27 @@ impl App {
             Side::Remote => ConfirmAction::DeleteDevice(items.iter().map(|i| i.path.clone()).collect()),
             Side::Local => ConfirmAction::DeleteLocal(items.iter().map(|i| i.path.clone()).collect()),
         };
+        let (dirs, files) = (
+            items.iter().filter(|i| i.is_dir).count(),
+            items.iter().filter(|i| !i.is_dir).count(),
+        );
+        let bytes: u64 = {
+            let p = if side == Side::Local { Some(&self.local) } else { self.remote.as_ref() };
+            p.map(|p| {
+                p.entries
+                    .iter()
+                    .filter(|e| !e.is_dir && items.iter().any(|i| i.path == e.full))
+                    .map(|e| e.size)
+                    .sum()
+            })
+            .unwrap_or(0)
+        };
+        let where_ = if side == Side::Remote { "DEVICE" } else { "locale" };
         self.screen = Screen::Confirm {
             title: "Conferma cancellazione".into(),
             message: format!(
-                "Eliminare {} elementi ({preview})?\nOperazione irreversibile.",
-                names.len()
+                "Eliminare da {where_}: {dirs} cartelle (con contenuto) e {files} file ({}) ?\n{preview}\n\nOperazione irreversibile.",
+                crate::util::humanize(bytes)
             ),
             action,
         };
@@ -638,6 +837,47 @@ impl App {
                     }
                 }
             }
+            InputAction::Transfer(from) => {
+                if v.is_empty() {
+                    return;
+                }
+                match from {
+                    Side::Remote => self.pull_to(v),
+                    Side::Local => self.push_to(v),
+                }
+            }
+            InputAction::Filter(side) => {
+                if let Some(p) = self.pane(side) {
+                    p.filter = v;
+                    rebuild(p);
+                }
+            }
+            InputAction::Rename(side, old) => {
+                if v.is_empty() || v.contains('/') || v == "." || v == ".." {
+                    self.log(format!("⚠ nome non valido: {v:?}"));
+                    return;
+                }
+                if dev_basename(&old) == v {
+                    return;
+                }
+                let parent = dev_parent(&old);
+                let new = dev_join(&parent, &v);
+                let res = match side {
+                    Side::Local => device_fs::rename_local(&old, &new),
+                    Side::Remote => device_fs::rename_device(&self.adb, &old, &new),
+                };
+                match res {
+                    Ok(()) => {
+                        self.log(format!("rinominato in {v}"));
+                        if let Some(p) = self.pane(side) {
+                            p.marked.clear();
+                            p.goto_name = Some(v);
+                        }
+                        self.refresh(side);
+                    }
+                    Err(e) => self.log(format!("⚠ rinomina: {e}")),
+                }
+            }
             InputAction::Connect => {
                 if v.is_empty() {
                     return;
@@ -652,6 +892,69 @@ impl App {
                 self.screen = Screen::Devices { sel: 0 };
             }
         }
+    }
+
+    pub fn page(&mut self, dir: i64) {
+        let step = 12;
+        self.move_sel(dir * step);
+    }
+
+    /// `o`: cicla l'ordinamento del pannello attivo.
+    pub fn cycle_sort(&mut self) {
+        let side = self.active;
+        let Some(p) = self.pane(side) else { return };
+        p.sort = p.sort.next();
+        rebuild(p);
+        let l = p.sort.label();
+        self.log(format!("ordinamento: {l}"));
+    }
+
+    /// `.`: mostra/nasconde i file che iniziano con '.'.
+    pub fn toggle_hidden(&mut self) {
+        let side = self.active;
+        let Some(p) = self.pane(side) else { return };
+        p.show_hidden = !p.show_hidden;
+        rebuild(p);
+        let on = p.show_hidden;
+        self.log(if on { "file nascosti: visibili" } else { "file nascosti: nascosti" });
+    }
+
+    /// `*`: inverte le marcature.
+    pub fn invert_marks(&mut self) {
+        let Some(p) = self.pane(self.active) else { return };
+        let all: HashSet<MarkedItem> = p
+            .entries
+            .iter()
+            .filter(|e| e.name != "..")
+            .map(|e| MarkedItem { path: e.full.clone(), is_dir: e.is_dir })
+            .collect();
+        p.marked = all.difference(&p.marked).cloned().collect();
+    }
+
+    /// `/`: filtro incrementale per nome.
+    pub fn filter_request(&mut self) {
+        let side = self.active;
+        let cur = self.pane(side).map(|p| p.filter.clone()).unwrap_or_default();
+        self.screen = Screen::Input {
+            title: "Filtro nome (vuoto = rimuovi)".into(),
+            value: cur,
+            action: InputAction::Filter(side),
+        };
+    }
+
+    /// `R`/F2: rinomina la voce selezionata.
+    pub fn rename_request(&mut self) {
+        let side = self.active;
+        let Some(p) = self.pane(side) else { return };
+        let Some(e) = p.selected().cloned() else { return };
+        if e.name == ".." {
+            return;
+        }
+        self.screen = Screen::Input {
+            title: format!("Rinomina «{}»", e.name),
+            value: e.name.clone(),
+            action: InputAction::Rename(side, e.full),
+        };
     }
 
     /// `S`: esporta SMS + call log nel pannello locale (thread separato).
@@ -727,18 +1030,28 @@ impl App {
         if key.kind != crossterm::event::KeyEventKind::Press {
             return;
         }
+        // Ctrl+C: in raw mode non arriva SIGINT, quindi lo gestiamo noi
+        if key.code == crossterm::event::KeyCode::Char('c')
+            && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+        {
+            self.cancel_running();
+            self.quit = true;
+            return;
+        }
         // copia i dati della schermata per evitare conflitti di borrow
         enum Route {
             Devices { sel: usize },
             Files,
             Confirm(#[allow(dead_code)] ConfirmAction),
             Input(InputAction, String),
+            Help,
         }
         let route = match &self.screen {
             Screen::Devices { sel } => Route::Devices { sel: *sel },
             Screen::Files => Route::Files,
             Screen::Confirm { action, .. } => Route::Confirm(action.clone()),
             Screen::Input { action, value, .. } => Route::Input(action.clone(), value.clone()),
+            Screen::Help => Route::Help,
         };
         match route {
             Route::Devices { sel } => match key.code {
@@ -752,7 +1065,42 @@ impl App {
             },
             Route::Files => match key.code {
                 KeyCode::Char('q') => self.quit = true,
-                KeyCode::Tab => self.switch_active(),
+                KeyCode::Char('?') | KeyCode::F(1) => self.screen = Screen::Help,
+                KeyCode::Esc => {
+                    let s = self.active;
+                    if let Some(p) = self.pane(s) {
+                        if !p.filter.is_empty() {
+                            p.filter.clear();
+                            rebuild(p);
+                        } else {
+                            p.marked.clear();
+                        }
+                    }
+                }
+                KeyCode::PageUp => self.page(-1),
+                KeyCode::PageDown => self.page(1),
+                KeyCode::Char('R') | KeyCode::F(2) => self.rename_request(),
+                KeyCode::Char('o') => self.cycle_sort(),
+                KeyCode::Char('.') => self.toggle_hidden(),
+                KeyCode::Char('*') => self.invert_marks(),
+                KeyCode::Char('/') => self.filter_request(),
+                KeyCode::Delete => self.delete_request(),
+                KeyCode::F(7) => self.mkdir_request(),
+                KeyCode::Tab | KeyCode::BackTab => self.switch_active(),
+                KeyCode::Right | KeyCode::Char('l') => self.enter_dir_only(),
+                KeyCode::Up if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => {
+                    self.toggle_mark_stay();
+                    self.move_sel(-1);
+                }
+                KeyCode::Down if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => {
+                    self.toggle_mark();
+                }
+                KeyCode::Insert => self.toggle_mark(),
+                KeyCode::Char('K') => {
+                    self.toggle_mark_stay();
+                    self.move_sel(-1);
+                }
+                KeyCode::Char('J') => self.toggle_mark(),
                 KeyCode::Up | KeyCode::Char('k') => self.move_sel(-1),
                 KeyCode::Down | KeyCode::Char('j') => self.move_sel(1),
                 KeyCode::Home | KeyCode::Char('g') => self.sel_home_end(false),
@@ -774,6 +1122,7 @@ impl App {
                 KeyCode::Char('x') => self.cancel_running(),
                 _ => {}
             },
+            Route::Help => self.screen = Screen::Files,
             Route::Confirm(_) => match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => self.confirm(true),
                 KeyCode::Char('n') | KeyCode::Esc => self.confirm(false),
