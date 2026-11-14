@@ -104,6 +104,8 @@ a segmenti. `g` (o un click sul titolo) apre "Vai a…" con:
 - **Luoghi**: sul computer Home, Backup, Scrivania, Documenti, Download, Immagini… ; sul device
   Memoria interna, Fotocamera (DCIM), Immagini, Download, Documenti, Musica, WhatsApp e la
   scheda SD (solo quelli che esistono davvero)
+- **⛁ Dischi montati**: chiavette, hard disk, partizioni e condivisioni di rete (nome del volume, spazio libero/totale),
+  aggiornati ogni volta che apri "Vai a…": scegli un disco nel pannello Locale e scarica lì i dati del device
 - **★ Preferiti**: `B` aggiunge/rimuove la cartella corrente
 - **↺ Recenti**: le ultime 8 cartelle visitate per pannello
 - **✎ Digita un percorso…** per inserirlo a mano
@@ -135,6 +137,7 @@ abt pull /sdcard/DCIM /sdcard/Download ./bk  # più sorgenti, destinazione = ult
 abt pull -o ./bk /sdcard/DCIM --verify       # destinazione con -o, verifica MD5 sui file singoli
 abt push ./foto ./video /sdcard/Pictures     # più sorgenti, cartella remota creata se manca
 abt sync /sdcard/WhatsApp ./bk/WhatsApp      # mirror incrementale (--delete rimuove in locale)
+abt disks                                    # dischi montati sul computer
 abt mkdir /sdcard/Nuova
 abt mv /sdcard/Nuova /sdcard/Rinominata
 abt rm /sdcard/Vecchia                       # chiede conferma; -y per saltarla
