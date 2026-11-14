@@ -98,3 +98,34 @@ pub fn now_secs() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
+
+/// Logo Android (ASCII/blocchi), usato da TUI e CLI.
+pub const LOGO: [&str; 11] = [
+    r"      ╲    ╱      ",
+    r"     ▄██████▄     ",
+    r"     █ ████ █     ",
+    r"     ▀▀▀▀▀▀▀▀     ",
+    r"  ▄█ ████████ █▄  ",
+    r"  ██ ████████ ██  ",
+    r"  ██ ████████ ██  ",
+    r"  ▀█ ████████ █▀  ",
+    r"     ▀██▀▀██▀     ",
+    r"      ██  ██      ",
+    r"      ▀▀  ▀▀      ",
+];
+
+/// Cartella locale di default per i backup: `$ABT_BACKUP_DIR` oppure
+/// `~/Android_Backup/Backup`. La crea se manca.
+pub fn default_backup_dir() -> Result<String, String> {
+    let d = std::env::var("ABT_BACKUP_DIR")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| format!("{}/Android_Backup/Backup", h.trim_end_matches('/')))
+        })
+        .ok_or_else(|| "HOME non impostata".to_string())?;
+    std::fs::create_dir_all(&d).map_err(|e| format!("{d}: {e}"))?;
+    Ok(d)
+}

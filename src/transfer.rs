@@ -303,7 +303,12 @@ fn worker(adb: Adb, rx: Receiver<JobSpec>, inner: Arc<Inner>) {
         let res = run_spec(&adb, &spec, &flag, sink.as_ref());
         let mut st = view.st.lock().unwrap();
         match &res {
-            Ok(()) => st.status = Status::Done,
+            Ok(()) => {
+                st.status = Status::Done;
+                if st.total > 0 {
+                    st.bytes = st.total;
+                }
+            }
             Err(e) if e.to_string().contains("annullato") => st.status = Status::Cancelled,
             Err(e) => {
                 st.msg = short_err(e);
@@ -333,13 +338,22 @@ pub fn run_spec(adb: &Adb, spec: &JobSpec, flag: &AtomicBool, sink: &dyn Sink) -
 
 /// Dimensione stimata sul device con `du -sk`; 0 se non determinabile.
 pub fn device_size_or_zero(adb: &Adb, path: &str) -> u64 {
+    let parse = |out: String| {
+        out.split_whitespace()
+            .next()
+            .and_then(|t| t.parse::<u64>().ok())
+    };
+    // byte reali (apparent size); fallback su KB occupati se `-b` non c'è
+    if let Some(b) = adb
+        .shell(&format!("toybox du -sb {}", sh_quote(path)))
+        .ok()
+        .and_then(parse)
+    {
+        return b;
+    }
     adb.shell(&format!("toybox du -sk {}", sh_quote(path)))
         .ok()
-        .and_then(|out| {
-            out.split_whitespace()
-                .next()
-                .and_then(|t| t.parse::<u64>().ok())
-        })
+        .and_then(parse)
         .unwrap_or(0)
         * 1024
 }
@@ -636,7 +650,7 @@ pub fn sync_mirror(
 ) -> Result<SyncStats> {
     sink.msg("elenco file remoti…");
     let cmd = format!(
-        "toybox find {} -type f -print0 | toybox xargs -0 -n 64 toybox stat -c '%s|%Y|%n'",
+        "toybox find -H {} -type f -print0 | toybox xargs -0 -n 64 toybox stat -c '%s|%Y|%n'",
         sh_quote(remote_root)
     );
     let raw = adb.exec_out_collect(&cmd)?;
