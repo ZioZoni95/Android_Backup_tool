@@ -1,0 +1,342 @@
+//! Rendering TUI (ratatui).
+
+use crate::app::{App, Side, Screen};
+use crate::transfer::{Direction, JobKind, Status};
+use crate::util::{fmt_date, humanize};
+use ratatui::layout::{Constraint, Direction as LDirection, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::Frame;
+use std::collections::HashSet;
+
+fn sel_style(active: bool) -> Style {
+    if active {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
+}
+
+fn status_glyph(s: Status) -> (&'static str, Color) {
+    match s {
+        Status::Queued => ("…", Color::DarkGray),
+        Status::Running => ("▶", Color::Cyan),
+        Status::Done => ("✔", Color::Green),
+        Status::Failed => ("✖", Color::Red),
+        Status::Cancelled => ("⊘", Color::Yellow),
+    }
+}
+
+fn trunc(s: &str, w: usize) -> String {
+    if w == 0 {
+        return String::new();
+    }
+    if s.chars().count() <= w {
+        s.to_string()
+    } else {
+        let c: String = s.chars().take(w.saturating_sub(1)).collect();
+        format!("{c}…")
+    }
+}
+
+pub fn draw(f: &mut Frame, app: &mut App) {
+    match &app.screen {
+        Screen::Devices { sel } => draw_devices(f, app, *sel),
+        Screen::Files => draw_files(f, app),
+        Screen::Confirm { .. } | Screen::Input { .. } => {
+            draw_files(f, app);
+            draw_dialog(f, app);
+        }
+    }
+}
+
+fn header(f: &mut Frame, area: Rect, app: &App) {
+    let info = app.info.clone().unwrap_or_else(|| "nessun device connesso".into());
+    let line = Line::from(vec![
+        Span::styled(
+            " Android Backup Tool (TUI) ",
+            Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(info, Style::default().fg(Color::Cyan)),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
+}
+
+fn footer(f: &mut Frame, area: Rect, text: &str) {
+    let w = area.width as usize;
+    let line = Line::from(Span::styled(trunc(text, w.saturating_sub(1)), Style::default().fg(Color::DarkGray)));
+    f.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
+    let area = f.area();
+    let chunks = Layout::default()
+        .direction(LDirection::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)])
+        .split(area);
+    header(f, chunks[0], app);
+
+    if app.devices.is_empty() {
+        let msg = "nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555";
+        f.render_widget(
+            Paragraph::new(msg)
+                .alignment(ratatui::layout::Alignment::Center)
+                .wrap(Wrap { trim: true }),
+            chunks[1],
+        );
+    } else {
+        let items: Vec<ListItem> = app
+            .devices
+            .iter()
+            .map(|d| {
+                let state_style = if d.state == "device" {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::Red)
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!(" {:<24}", d.serial), Style::default().fg(Color::Cyan)),
+                    Span::styled(format!("{:<14}", d.state), state_style),
+                    Span::styled(
+                        d.model.clone().unwrap_or_default(),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]))
+            })
+            .collect();
+        let mut ls = ListState::default();
+        ls.select(Some(sel.min(app.devices.len().saturating_sub(1))));
+        let list = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title(" Seleziona device "))
+            .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
+        f.render_stateful_widget(list, chunks[1], &mut ls);
+    }
+    footer(
+        f,
+        chunks[2],
+        "↑↓/j-k muovi · Invio connetti · c aggiungi Wi-Fi (adb connect) · r aggiorna · q esci",
+    );
+}
+
+fn draw_files(f: &mut Frame, app: &mut App) {
+    let area = f.area();
+    let chunks = Layout::default()
+        .direction(LDirection::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(4),
+            Constraint::Length(5),
+            Constraint::Length(4),
+            Constraint::Length(1),
+        ])
+        .split(area);
+    header(f, chunks[0], app);
+
+    let panes = Layout::default()
+        .direction(LDirection::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
+    let active_local = app.active == Side::Local;
+    draw_pane(f, panes[0], &mut app.local, active_local, "Locale");
+    match app.remote.as_mut() {
+        Some(r) => draw_pane(f, panes[1], r, !active_local, "Device"),
+        None => {
+            let b = Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray));
+            f.render_widget(Paragraph::new("").block(b), panes[1]);
+        }
+    }
+
+    draw_transfers(f, chunks[2], app);
+    draw_log(f, chunks[3], app);
+    footer(
+        f,
+        chunks[4],
+        "Tab pannello · ↑↓/j-k · Invio apri/trasferisci · Spazio marca · a tutto · y pull · p push · s sync · d elimina · n mkdir · r aggiorna · S SMS/chiamate · x annulla · q esci",
+    );
+}
+
+fn draw_pane(f: &mut Frame, area: Rect, p: &mut crate::app::Pane, active: bool, label: &str) {
+    let marked: HashSet<String> = p.marked.iter().map(|m| m.path.clone()).collect();
+    let w = area.width.saturating_sub(2) as usize;
+    let name_w = w.saturating_sub(24).max(8);
+
+    let mut title = format!(" {label}: {} ", p.cwd);
+    if p.loading {
+        title.push_str("⏳");
+    }
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(sel_style(active))
+        .title(title);
+
+    if let Some(err) = &p.error {
+        let text = format!("{err}");
+        f.render_widget(Paragraph::new(text).block(block).wrap(Wrap { trim: true }), area);
+        return;
+    }
+
+    let items: Vec<ListItem> = p
+        .entries
+        .iter()
+        .map(|e| {
+            let mark = if marked.contains(&e.full) { "✓" } else { " " };
+            let is_dot = e.name == "..";
+            let size = if is_dot {
+                String::new()
+            } else if e.is_dir {
+                "   —".to_string()
+            } else {
+                format!("{:>8}", humanize(e.size))
+            };
+            let date = if is_dot { String::new() } else { fmt_date(e.mtime) };
+            let name_style = if e.is_dir {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!(" {mark} "), Style::default().fg(Color::Green)),
+                Span::styled(trunc(&e.name, name_w), name_style),
+                Span::raw("  "),
+                Span::styled(size, Style::default().fg(Color::Cyan)),
+                Span::raw("  "),
+                Span::styled(date, Style::default().fg(Color::DarkGray)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
+    f.render_stateful_widget(list, area, &mut p.list_state);
+}
+
+fn draw_transfers(f: &mut Frame, area: Rect, app: &App) {
+    let snaps = app.queue.as_ref().map(|q| q.snapshot()).unwrap_or_default();
+    let mut lines: Vec<Line> = Vec::new();
+    if snaps.is_empty() {
+        lines.push(Line::from(Span::styled(
+            " nessun trasferimento (y pull · p push · s sync)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for s in snaps.iter().rev().take(4) {
+            let (g, c) = status_glyph(s.status);
+            let pct = if s.total > 0 {
+                format!(" {:>3}%", s.bytes * 100 / s.total.max(1))
+            } else {
+                String::new()
+            };
+            let bytes = if s.total > 0 {
+                format!("{}/{}", humanize(s.bytes), humanize(s.total))
+            } else if s.bytes > 0 {
+                humanize(s.bytes)
+            } else {
+                String::new()
+            };
+            let dir_arrow = match s.dir {
+                Direction::Pull => "↓",
+                Direction::Push => "↑",
+            };
+            let msg = if s.status == Status::Failed {
+                format!(" — {}", s.msg)
+            } else if !s.msg.is_empty() && s.status == Status::Running {
+                format!(" — {}", trunc(&s.msg, 40))
+            } else {
+                String::new()
+            };
+            lines.push(Line::from(Span::styled(
+                format!(
+                    " {g} {} {} {:>12}{}{}",
+                    dir_arrow, s.label, bytes, pct, msg
+                ),
+                Style::default().fg(c),
+            )));
+        }
+    }
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Trasferimenti "),
+        ),
+        area,
+    );
+}
+
+fn draw_log(f: &mut Frame, area: Rect, app: &App) {
+    let lines: Vec<Line> = app
+        .log
+        .iter()
+        .rev()
+        .take(3)
+        .map(|s| {
+            let style = if s.contains('⚠') {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default()
+            };
+            Line::from(Span::styled(trunc(s, area.width as usize - 2), style))
+        })
+        .collect();
+    f.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(Block::default().borders(Borders::ALL).title(" Log ")),
+        area,
+    );
+}
+
+fn centered_rect(px: u16, py: u16, r: Rect) -> Rect {
+    let v = Layout::default()
+        .direction(LDirection::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - py) / 2),
+            Constraint::Percentage(py),
+            Constraint::Percentage((100 - py) / 2),
+        ])
+        .split(r);
+    let h = Layout::default()
+        .direction(LDirection::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - px) / 2),
+            Constraint::Percentage(px),
+            Constraint::Percentage((100 - px) / 2),
+        ])
+        .split(v[1]);
+    h[1]
+}
+
+fn draw_dialog(f: &mut Frame, app: &App) {
+    match &app.screen {
+        Screen::Confirm { title, message, .. } => {
+            let area = centered_rect(60, 30, f.area());
+            f.render_widget(Clear, area);
+            let txt = format!("{message}\n\n y = conferma   n = annulla");
+            f.render_widget(
+                Paragraph::new(txt)
+                    .wrap(Wrap { trim: true })
+                    .block(Block::default().borders(Borders::ALL).title(format!(" {title} "))),
+                area,
+            );
+        }
+        Screen::Input { title, value, .. } => {
+            let area = centered_rect(60, 20, f.area());
+            f.render_widget(Clear, area);
+            let txt = format!("{value}▌\n\n Invio = conferma   Esc = annulla");
+            f.render_widget(
+                Paragraph::new(txt)
+                    .wrap(Wrap { trim: false })
+                    .block(Block::default().borders(Borders::ALL).title(format!(" {title} "))),
+                area,
+            );
+        }
+        _ => {}
+    }
+}
+
+// JobKind usato solo per labeling futuro; evita dead-code warning.
+#[allow(dead_code)]
+fn _kind_marker(_: JobKind) {}

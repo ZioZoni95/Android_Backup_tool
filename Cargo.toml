@@ -1,0 +1,19 @@
+[package]
+name = "android-backup-tool"
+version = "0.1.0"
+edition = "2021"
+description = "Backup e file manager TUI per Android via adb (alternativa veloce a MTP)"
+
+[[bin]]
+name = "abt"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29.0"
+crossterm = "0.28.1"
+anyhow = "1"
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+strip = true
