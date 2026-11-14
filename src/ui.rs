@@ -52,6 +52,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             draw_files(f, app);
             draw_menu(f, app);
         }
+        Screen::Goto { .. } => {
+            draw_files(f, app);
+            draw_goto(f, app);
+        }
         Screen::Confirm { .. } | Screen::Input { .. } => {
             draw_files(f, app);
             draw_dialog(f, app);
@@ -97,6 +101,47 @@ fn hints(f: &mut Frame, area: Rect, rows: &[&[(&str, &str)]]) {
     f.render_widget(Paragraph::new(lines), area);
 }
 
+/// Titolo del pannello con il percorso a segmenti sottolineati (cliccabili).
+fn spans_title(label: &str, cwd: &str, extra: &str) -> Vec<Span<'static>> {
+    let mut v = vec![Span::raw(format!(" {label}: "))];
+    let chars: Vec<char> = cwd.chars().collect();
+    let link = Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
+    let mut pos = 0usize;
+    for (a, b, _) in crate::places::crumbs(cwd) {
+        if a > pos {
+            v.push(Span::raw(chars[pos..a].iter().collect::<String>()));
+        }
+        v.push(Span::styled(chars[a..b.min(chars.len())].iter().collect::<String>(), link));
+        pos = b.min(chars.len());
+    }
+    if pos < chars.len() {
+        v.push(Span::raw(chars[pos..].iter().collect::<String>()));
+    }
+    v.push(Span::raw(format!(" {extra}")));
+    v
+}
+
+fn draw_goto(f: &mut Frame, app: &App) {
+    let Screen::Goto { items, sel, pos, side } = &app.screen else { return };
+    let maxw = items.iter().map(|i| i.0.chars().count()).max().unwrap_or(10);
+    let r = crate::app::popup_rect(maxw, items.len(), *pos, f.area());
+    f.render_widget(Clear, r);
+    let rows: Vec<ListItem> = items.iter().map(|(l, _)| ListItem::new(Line::from(format!(" {l} ")))).collect();
+    let mut st = ListState::default();
+    st.select(Some(*sel));
+    let title = if *side == Side::Local { " Vai a… (Locale) " } else { " Vai a… (Device) " };
+    let list = List::new(rows)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(title)
+                .title_bottom(" ▸ luoghi · ★ preferiti (B) · ↺ recenti "),
+        )
+        .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
+    f.render_stateful_widget(list, r, &mut st);
+}
+
 fn draw_menu(f: &mut Frame, app: &App) {
     let Screen::Menu { items, sel, pos, title } = &app.screen else { return };
     let r = crate::app::menu_rect(items, *pos, f.area());
@@ -124,7 +169,10 @@ fn draw_help(f: &mut Frame) {
     let rows: &[(&str, &str)] = &[
         ("NAVIGAZIONE", ""),
         ("Tab / Shift+Tab", "cambia pannello"),
-        ("↑↓  j k   PgUp PgDn", "muovi cursore · g/G inizio/fine"),
+        ("↑↓  j k   PgUp PgDn", "muovi cursore · Home/G inizio/fine"),
+        ("g  (o click sul titolo)", "Vai a…: luoghi, preferiti, recenti, percorso a mano"),
+        ("click sul percorso", "clic su un segmento del path in alto per saltarci"),
+        ("B", "aggiungi/rimuovi la cartella corrente dai preferiti"),
         ("→ l   ← h Backspace", "entra in cartella · cartella padre"),
         ("Invio", "cartella: entra · file: trasferisce nell'altro pannello"),
         ("/", "filtra per nome (Esc rimuove il filtro)"),
@@ -283,7 +331,7 @@ fn draw_files(f: &mut Frame, app: &mut App) {
         chunks[4],
         &[
             &[("Tab", "pannello"), ("Spazio", "marca"), ("y", "pull"), ("p", "push"), ("T", "cartella intera"), ("s", "sync"), ("n", "nuova cart."), ("R", "rinomina"), ("d", "elimina")],
-            &[("/", "filtro"), ("o", "ordina"), (".", "nascosti"), ("a", "tutto"), ("*", "inverti"), ("S", "SMS"), ("x", "annulla"), ("?", "aiuto"), ("q", "esci")],
+            &[("g", "vai a"), ("/", "filtro"), ("o", "ordina"), (".", "nascosti"), ("a", "tutto"), ("*", "inverti"), ("S", "SMS"), ("x", "annulla"), ("?", "aiuto"), ("q", "esci")],
         ],
     );
 }
@@ -293,7 +341,7 @@ fn draw_pane(f: &mut Frame, area: Rect, p: &mut crate::app::Pane, active: bool, 
     let w = area.width.saturating_sub(2) as usize;
     let name_w = w.saturating_sub(24).max(8);
 
-    let mut title = format!(" {label}: {} ", p.cwd);
+    let mut title = String::new();
     if p.loading {
         title.push_str("⏳");
     }
@@ -318,7 +366,7 @@ fn draw_pane(f: &mut Frame, area: Rect, p: &mut crate::app::Pane, active: bool, 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(sel_style(active))
-        .title(title)
+        .title(Line::from(spans_title(label, &p.cwd, &title)))
         .title_bottom(bottom);
 
     if let Some(err) = &p.error {

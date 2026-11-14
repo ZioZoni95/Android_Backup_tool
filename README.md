@@ -58,8 +58,11 @@ momento per l'elenco completo dei comandi.
 | Tasto                     | Azione                                                   |
 |---------------------------|----------------------------------------------------------|
 | `Tab` / `Shift+Tab`       | cambia pannello attivo                                   |
-| `↑↓` `j k` `PgUp` `PgDn`  | muovi il cursore (`g`/`G` inizio/fine)                   |
+| `↑↓` `j k` `PgUp` `PgDn`  | muovi il cursore (`Home`/`G` inizio/fine)                   |
 | `→` `l`                   | entra nella cartella                                     |
+| `g` / click sul titolo    | **Vai a…**: luoghi, preferiti, recenti, percorso a mano  |
+| click sul path in alto    | salta a quel segmento (`/sdcard/DCIM` → clic su `sdcard`)|
+| `B`                       | aggiungi/rimuovi la cartella corrente dai preferiti      |
 | `←` `h` `Backspace`       | cartella padre (il cursore torna sulla cartella lasciata)|
 | `Invio`                   | cartella: entra · file: trasferisci nell'altro pannello  |
 | `/`                       | filtra per nome (`Esc` rimuove il filtro)                |
@@ -86,6 +89,18 @@ sotto il cursore: apri, copia (→ altro pannello), marca, rinomina, elimina; e 
 corrente: copia l'intera cartella, sync incrementale, nuova cartella, seleziona tutto,
 ordina, file nascosti, aggiorna. Nel menu: click, `↑↓` + Invio, `Esc` per chiudere.
 Con il mouse attivo, per selezionare testo nel terminale tieni premuto `Shift`.
+
+**Cambiare percorso senza scrivere.** Il percorso nel titolo di ogni pannello è cliccabile
+a segmenti. `g` (o un click sul titolo) apre "Vai a…" con:
+
+- **Luoghi**: sul computer Home, Backup, Scrivania, Documenti, Download, Immagini… ; sul device
+  Memoria interna, Fotocamera (DCIM), Immagini, Download, Documenti, Musica, WhatsApp e la
+  scheda SD (solo quelli che esistono davvero)
+- **★ Preferiti**: `B` aggiunge/rimuove la cartella corrente
+- **↺ Recenti**: le ultime 8 cartelle visitate per pannello
+- **✎ Digita un percorso…** per inserirlo a mano
+
+Preferiti e recenti sono salvati in `~/.config/abt/places.txt`.
 
 **Selezione multipla e destinazione.** Marca più voci (anche cartelle) e premi `y`/`p`:
 compare un riepilogo (cartelle, file, dimensione) e la **cartella di destinazione**,
