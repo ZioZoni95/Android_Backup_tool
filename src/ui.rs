@@ -110,6 +110,7 @@ fn draw_help(f: &mut Frame) {
         ("a   *   Esc", "seleziona tutto · inverti · azzera selezione"),
         ("FILE E CARTELLE", ""),
         ("y   p", "pull / push: chiede la cartella di destinazione (Invio conferma)"),
+        ("T  (o y/p su ..)", "trasferisce l'INTERA cartella corrente"),
         ("s", "sync incrementale della cartella device → locale"),
         ("n  (F7)", "nuova cartella"),
         ("R  (F2)", "rinomina"),
@@ -253,7 +254,7 @@ fn draw_files(f: &mut Frame, app: &mut App) {
         f,
         chunks[4],
         &[
-            &[("Tab", "pannello"), ("Spazio", "marca"), ("y", "pull"), ("p", "push"), ("s", "sync"), ("n", "nuova cart."), ("R", "rinomina"), ("d", "elimina")],
+            &[("Tab", "pannello"), ("Spazio", "marca"), ("y", "pull"), ("p", "push"), ("T", "cartella intera"), ("s", "sync"), ("n", "nuova cart."), ("R", "rinomina"), ("d", "elimina")],
             &[("/", "filtro"), ("o", "ordina"), (".", "nascosti"), ("a", "tutto"), ("*", "inverti"), ("S", "SMS"), ("x", "annulla"), ("?", "aiuto"), ("q", "esci")],
         ],
     );

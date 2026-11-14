@@ -49,7 +49,7 @@ pub enum InputAction {
     Filter(Side),
     Connect,
     /// Trasferimento dal pannello indicato (destinazione editabile).
-    Transfer(Side),
+    Transfer(Side, bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -539,17 +539,45 @@ impl App {
 
     /// `y`: accoda il pull (device -> locale) di selezione/marcature del pannello remoto.
     pub fn pull_jobs(&mut self) {
-        self.transfer_request(Side::Remote);
+        self.transfer_request(Side::Remote, false);
+    }
+
+    /// `T`: trasferisce l'INTERA cartella corrente del pannello attivo.
+    pub fn transfer_whole_dir(&mut self) {
+        let side = self.active;
+        self.transfer_request(side, true);
+    }
+
+    /// Voci da trasferire: la cartella corrente intera oppure selezione/marcature.
+    fn transfer_items(&self, side: Side, whole: bool) -> Vec<MarkedItem> {
+        if !whole {
+            return self.selection_items(side);
+        }
+        let cwd = match side {
+            Side::Local => Some(self.local.cwd.clone()),
+            Side::Remote => self.remote.as_ref().map(|p| p.cwd.clone()),
+        };
+        match cwd {
+            Some(c) if !c.trim_end_matches('/').is_empty() => vec![MarkedItem {
+                path: c.trim_end_matches('/').to_string(),
+                is_dir: true,
+            }],
+            _ => Vec::new(),
+        }
     }
 
     /// Dialogo di trasferimento: riepilogo + cartella di destinazione modificabile
     /// (precompilata con la cartella dell'altro pannello).
-    fn transfer_request(&mut self, from: Side) {
+    fn transfer_request(&mut self, from: Side, whole: bool) {
         if self.queue.is_none() {
             self.log("⚠ collega prima un device");
             return;
         }
-        let items = self.selection_items(from);
+        // y/p sulla voce ".." = trasferisci la cartella corrente intera
+        let on_dotdot = !whole
+            && self.pane(from).map(|p| p.marked.is_empty() && p.selected().map(|e| e.name == "..").unwrap_or(false)).unwrap_or(false);
+        let whole = whole || on_dotdot;
+        let items = self.transfer_items(from, whole);
         if items.is_empty() {
             self.log("niente da trasferire: seleziona o marca qualche voce (spazio)");
             return;
@@ -576,19 +604,22 @@ impl App {
             },
         };
         let (verb, arrow) = if from == Side::Remote { ("Pull", "→ locale") } else { ("Push", "→ device") };
+        let what = if whole {
+            let n = items.first().map(|i| dev_basename(&i.path).to_string()).unwrap_or_default();
+            format!("cartella intera «{n}»")
+        } else {
+            format!("{dirs} cartelle, {files} file (≥ {})", crate::util::humanize(bytes))
+        };
         self.screen = Screen::Input {
-            title: format!(
-                "{verb} {arrow}: {dirs} cartelle, {files} file (≥ {}) — cartella di destinazione",
-                crate::util::humanize(bytes)
-            ),
+            title: format!("{verb} {arrow}: {what} — cartella di destinazione"),
             value: dest,
-            action: InputAction::Transfer(from),
+            action: InputAction::Transfer(from, whole),
         };
     }
 
-    fn pull_to(&mut self, local_cwd: String) {
+    fn pull_to(&mut self, local_cwd: String, whole: bool) {
         let Some(queue) = self.queue.clone() else { return };
-        let items = self.selection_items(Side::Remote);
+        let items = self.transfer_items(Side::Remote, whole);
         let local_cwd = local_cwd.trim_end_matches('/').to_string();
         if let Err(e) = std::fs::create_dir_all(&local_cwd) {
             self.log(format!("⚠ destinazione {local_cwd}: {e}"));
@@ -613,12 +644,12 @@ impl App {
 
     /// `p`: accoda il push (locale -> device) di selezione/marcature del pannello locale.
     pub fn push_jobs(&mut self) {
-        self.transfer_request(Side::Local);
+        self.transfer_request(Side::Local, false);
     }
 
-    fn push_to(&mut self, dst_dir: String) {
+    fn push_to(&mut self, dst_dir: String, whole: bool) {
         let Some(queue) = self.queue.clone() else { return };
-        let items = self.selection_items(Side::Local);
+        let items = self.transfer_items(Side::Local, whole);
         let dst_dir = dst_dir.trim_end_matches('/').to_string();
         if dst_dir.is_empty() {
             self.log("⚠ destinazione non valida");
@@ -837,13 +868,13 @@ impl App {
                     }
                 }
             }
-            InputAction::Transfer(from) => {
+            InputAction::Transfer(from, whole) => {
                 if v.is_empty() {
                     return;
                 }
                 match from {
-                    Side::Remote => self.pull_to(v),
-                    Side::Local => self.push_to(v),
+                    Side::Remote => self.pull_to(v, whole),
+                    Side::Local => self.push_to(v, whole),
                 }
             }
             InputAction::Filter(side) => {
@@ -1079,6 +1110,7 @@ impl App {
                 }
                 KeyCode::PageUp => self.page(-1),
                 KeyCode::PageDown => self.page(1),
+                KeyCode::Char('T') => self.transfer_whole_dir(),
                 KeyCode::Char('R') | KeyCode::F(2) => self.rename_request(),
                 KeyCode::Char('o') => self.cycle_sort(),
                 KeyCode::Char('.') => self.toggle_hidden(),
