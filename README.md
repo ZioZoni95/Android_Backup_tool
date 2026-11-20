@@ -22,6 +22,7 @@ Design e limiti: vedi [ARCHITECTURE.md](ARCHITECTURE.md).
 ## Requisiti
 
 - Linux/macOS, Rust 1.80+
+- Windows: 🚧 work in progress (branch `feat/windows-support`, non ancora testato su Windows reale)
 - `adb` nel PATH (Debian/Ubuntu: `sudo apt install adb`; Fedora: `sudo dnf install android-tools`)
   oppure `ADB_BIN=/percorso/adb`
 - Telefono con **debug USB** attivo (accetta la chiave RSA al primo collegamento).
