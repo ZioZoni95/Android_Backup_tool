@@ -21,11 +21,21 @@ Design e limiti: vedi [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Requisiti
 
-- Linux/macOS, Rust 1.80+
+- Linux/macOS/Windows 10+, Rust 1.80+
 - `adb` nel PATH (Debian/Ubuntu: `sudo apt install adb`; Fedora: `sudo dnf install android-tools`)
   oppure `ADB_BIN=/percorso/adb`
 - Telefono con **debug USB** attivo (accetta la chiave RSA al primo collegamento).
   Per il Wi-Fi: prima USB, poi `abt wifi`.
+
+### Windows
+
+- Installa [platform-tools](https://developer.android.com/tools/releases/platform-tools) e
+  aggiungi la cartella al PATH (oppure `set ADB_BIN=C:\\percorso\\adb.exe`).
+- Serve `tar` (incluso in Windows 10 1803+ come `C:\\Windows\\System32\\tar.exe`).
+- Consigliato **Windows Terminal** (la console legacy può mostrare male icone e box-drawing).
+- Config in `%APPDATA%\\abt\\places.txt`; backup di default in `%USERPROFILE%\\Android_Backup\\Backup`.
+- I percorsi locali si scrivono con `/` o `\\` (`D:\\Foto`); le unità sono nel menu «Vai a».
+- File del device con nomi non validi su Windows (`:`, `?`, `*`, …) non si possono estrarre.
 
 ## Build
 
