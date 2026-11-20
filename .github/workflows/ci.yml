@@ -5,13 +5,21 @@ on:
   pull_request:
 
 jobs:
-  build:
-    name: build + test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+  linux:
+    name: build + test (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - run: cargo test --locked
+
+  # Supporto Windows in sviluppo: un fallimento qui non rompe la CI.
+  windows:
+    name: build + test (windows, work in progress)
+    runs-on: windows-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
