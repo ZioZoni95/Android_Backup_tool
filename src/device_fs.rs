@@ -35,7 +35,7 @@ impl Entry {
 /// Percorsi pericolosi da non toccare mai (rm/delete/mkdir).
 pub fn safe_path(p: &str) -> Result<()> {
     let t = p.trim();
-    if t.is_empty() || t == "/" || t.split('/').any(|c| c == "..") {
+    if t.is_empty() || crate::util::is_local_root(t) || t.split('/').any(|c| c == "..") {
         bail!("percorso non consentito: {t:?}");
     }
     Ok(())
@@ -65,9 +65,12 @@ fn nul_split(bytes: &[u8]) -> Vec<String> {
 
 fn with_dot(mut v: Vec<Entry>, dir: &str, remote: bool) -> Vec<Entry> {
     let d = dir.trim_end_matches('/');
-    if !d.is_empty() {
-        let parent = dev_parent(d);
-        v.insert(0, Entry::dot(parent, remote));
+    if remote {
+        if !d.is_empty() {
+            v.insert(0, Entry::dot(dev_parent(d), remote));
+        }
+    } else if !crate::util::is_local_root(dir) && !d.is_empty() {
+        v.insert(0, Entry::dot(crate::util::local_parent(dir), remote));
     }
     v
 }
@@ -136,7 +139,7 @@ pub fn list_local(dir: &str) -> Result<Vec<Entry>> {
     let rd = fs::read_dir(dir).map_err(|e| anyhow::anyhow!("lettura di {dir} fallita: {e}"))?;
     for e in rd {
         let Ok(e) = e else { continue };
-        let full = e.path().to_string_lossy().into_owned();
+        let full = crate::util::norm_local(&e.path().to_string_lossy());
         let name = e.file_name().to_string_lossy().into_owned();
         let md = fs::metadata(&full).or_else(|_| e.metadata()).ok();
         let (is_dir, size, mtime) = match md {

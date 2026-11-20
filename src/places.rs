@@ -18,6 +18,10 @@ pub fn crumbs(cwd: &str) -> Vec<(usize, usize, String)> {
         if i == 0 {
             if part.is_empty() {
                 v.push((0, 1, "/".to_string()));
+            } else if part.len() == 2 && part.ends_with(':') {
+                // unità Windows (C:)
+                v.push((0, len, format!("{part}/")));
+                acc.push_str(part);
             }
         } else if !part.is_empty() {
             acc.push('/');
@@ -30,14 +34,14 @@ pub fn crumbs(cwd: &str) -> Vec<(usize, usize, String)> {
 }
 
 fn home() -> Option<String> {
-    std::env::var("HOME").ok().filter(|h| !h.is_empty())
+    crate::util::home_dir()
 }
 
 /// Luoghi predefiniti del computer (solo quelli esistenti).
 pub fn local_places() -> Vec<Place> {
     let mut v: Vec<Place> = Vec::new();
     let Some(h) = home() else {
-        return vec![("Radice".into(), "/".into())];
+        return vec![("Radice".into(), if cfg!(windows) { "C:/" } else { "/" }.into())];
     };
     v.push(("Home".into(), h.clone()));
     if let Ok(b) = crate::util::default_backup_dir() {
@@ -63,7 +67,9 @@ pub fn local_places() -> Vec<Place> {
         };
         v.push((format!("⛁ Disco «{}»{space}", d.name), d.mount));
     }
-    v.push(("Radice (/)".into(), "/".into()));
+    if !cfg!(windows) {
+        v.push(("Radice (/)".into(), "/".into()));
+    }
     v
 }
 
@@ -75,6 +81,7 @@ pub struct Disk {
     pub avail: u64,
 }
 
+#[cfg(unix)]
 fn unescape_mount(s: &str) -> String {
     // /proc/mounts codifica spazi e altri caratteri come \040 (ottale)
     let b = s.as_bytes();
@@ -92,6 +99,7 @@ fn unescape_mount(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+#[cfg(unix)]
 /// Dischi/partizioni/condivisioni attualmente montati (esclusi filesystem di sistema).
 pub fn mounted_disks() -> Vec<Disk> {
     let Ok(txt) = std::fs::read_to_string("/proc/self/mounts") else { return Vec::new() };
@@ -143,6 +151,35 @@ pub fn mounted_disks() -> Vec<Disk> {
     v
 }
 
+#[cfg(windows)]
+/// Unità Windows presenti (A:–Z:) con etichetta e spazio.
+pub fn mounted_disks() -> Vec<Disk> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetLogicalDrives, GetVolumeInformationW};
+    let mask = unsafe { GetLogicalDrives() };
+    let mut v = Vec::new();
+    for i in 0..26u32 {
+        if mask & (1 << i) == 0 {
+            continue;
+        }
+        let letter = (b'A' + i as u8) as char;
+        let root: Vec<u16> = format!("{letter}:\\").encode_utf16().chain(std::iter::once(0)).collect();
+        let mut label = [0u16; 261];
+        let ok = unsafe {
+            GetVolumeInformationW(root.as_ptr(), label.as_mut_ptr(), label.len() as u32, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), 0)
+        };
+        if ok == 0 {
+            continue; // unità non pronta (lettore vuoto, ecc.)
+        }
+        let n = label.iter().position(|&c| c == 0).unwrap_or(0);
+        let lbl = String::from_utf16_lossy(&label[..n]);
+        let (mut avail, mut total, mut free) = (0u64, 0u64, 0u64);
+        unsafe { GetDiskFreeSpaceExW(root.as_ptr(), &mut avail, &mut total, &mut free) };
+        let name = if lbl.is_empty() { format!("{letter}:") } else { format!("{lbl} ({letter}:)") };
+        v.push(Disk { mount: format!("{letter}:/"), name, total, avail });
+    }
+    v
+}
+
 /// Luoghi predefiniti del device (verifica l'esistenza con una sola chiamata adb).
 pub fn remote_places(adb: &Adb) -> Vec<Place> {
     let cands = [
@@ -188,6 +225,7 @@ fn cfg_path() -> Option<String> {
     let base = std::env::var("XDG_CONFIG_HOME")
         .ok()
         .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var("APPDATA").ok().filter(|v| !v.is_empty()).map(|v| v.replace('\\', "/")))
         .or_else(|| home().map(|h| format!("{h}/.config")))?;
     Some(format!("{base}/abt/places.txt"))
 }

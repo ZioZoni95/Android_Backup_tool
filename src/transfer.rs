@@ -462,19 +462,27 @@ pub fn pull_file(
     Ok(())
 }
 
+/// MD5 di un file locale (nativo, senza dipendere da `md5sum`).
+fn local_md5(path: &str) -> Result<String> {
+    use md5::{Digest, Md5};
+    let mut f = fs::File::open(path).with_context(|| format!("apertura di {path}"))?;
+    let mut h = Md5::new();
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
+    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// Verifica MD5 dopo il trasferimento di un singolo file.
 fn verify_md5(adb: &Adb, src: &str, dst: &str) -> Result<()> {
     let rem = adb.shell(&format!("toybox md5sum {}", sh_quote(src)))?;
     let rhash = rem.split_whitespace().next().unwrap_or("").to_lowercase();
-    let out = Command::new("md5sum")
-        .arg(dst)
-        .output()
-        .context("md5sum locale non riuscito")?;
-    let lhash = String::from_utf8_lossy(&out.stdout)
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
+    let lhash = local_md5(dst).unwrap_or_default();
     if rhash.is_empty() || lhash.is_empty() {
         bail!("verifica MD5 non disponibile");
     }

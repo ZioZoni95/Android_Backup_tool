@@ -258,7 +258,7 @@ fn default_backup_dir(log: &mut VecDeque<String>) -> String {
         Err(e) => {
             log.push_back(format!("⚠ cartella backup: {e}"));
             std::env::current_dir()
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(|p| crate::util::norm_local(&p.to_string_lossy()))
                 .unwrap_or_else(|_| "/".into())
         }
     }
@@ -475,10 +475,7 @@ impl App {
             Side::Remote => self.remote.as_ref().map(|p| p.cwd.clone()).unwrap_or_default(),
         };
         let parent = match side {
-            Side::Local => Path::new(&cwd)
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "/".into()),
+            Side::Local => crate::util::local_parent(&cwd),
             Side::Remote => dev_parent(&cwd),
         };
         let changed = match side {
@@ -916,7 +913,7 @@ impl App {
         let v = value.trim().to_string();
         match action {
             InputAction::Mkdir(side) => {
-                if v.is_empty() || v.contains('/') || v.split('/').any(|c| c == "..") {
+                if v.is_empty() || v.contains('/') || (cfg!(windows) && v.contains('\\')) || v.split('/').any(|c| c == "..") {
                     self.log(format!("⚠ nome non valido: {v:?}"));
                     return;
                 }
@@ -956,11 +953,12 @@ impl App {
             InputAction::GotoPath(side) => {
                 let mut path = v;
                 if side == Side::Local {
-                    if path == "~" || path.starts_with("~/") {
-                        if let Ok(h) = std::env::var("HOME") {
+                    if path == "~" || path.starts_with("~/") || path.starts_with("~\\") {
+                        if let Some(h) = crate::util::home_dir() {
                             path = format!("{h}{}", &path[1..]);
                         }
                     }
+                    path = crate::util::norm_local(&path);
                 } else if !path.starts_with('/') {
                     path = format!("/{path}");
                 }
@@ -973,7 +971,7 @@ impl App {
                 }
             }
             InputAction::Rename(side, old) => {
-                if v.is_empty() || v.contains('/') || v == "." || v == ".." {
+                if v.is_empty() || v.contains('/') || (cfg!(windows) && v.contains('\\')) || v == "." || v == ".." {
                     self.log(format!("⚠ nome non valido: {v:?}"));
                     return;
                 }
