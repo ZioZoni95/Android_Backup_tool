@@ -3,8 +3,8 @@
 ```
    ╲ ╱
   ▄███▄     ▄▀█ █▄▄ ▀█▀
- ██████     █▀█ █▄█  █
-  █▀▀█      Android Backup Tool
+ ███████     █▀█ █▄█  █
+   █▀▀█      Android Backup Tool
 ```
 
 **English** · [Italiano](#italiano)
@@ -49,6 +49,7 @@ abt pull /sdcard/DCIM                # phone → ~/Android_Backup/Backup
 abt push ./photos /sdcard/Pictures   # computer → phone
 abt sync /sdcard/WhatsApp ./bk       # incremental mirror
 abt backup                           # DCIM, Pictures, Documents, Download, WhatsApp + SMS and call log
+abt speedtest                        # what limits your speed: cable/Wi-Fi, phone storage or PC disk
 abt help                             # all commands
 ```
 
@@ -106,6 +107,7 @@ abt pull /sdcard/DCIM                # telefono → ~/Android_Backup/Backup
 abt push ./foto /sdcard/Pictures     # computer → telefono
 abt sync /sdcard/WhatsApp ./bk       # mirror incrementale
 abt backup                           # DCIM, Pictures, Documents, Download, WhatsApp + SMS e chiamate
+abt speedtest                        # cosa limita la velocità: cavo/Wi-Fi, memoria del telefono o disco del PC
 abt help                             # tutti i comandi
 ```
 

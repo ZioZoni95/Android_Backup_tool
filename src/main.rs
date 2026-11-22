@@ -215,6 +215,67 @@ fn run() -> Result<()> {
                 Err(e) => bail!(e),
             }
         }
+        "speedtest" => {
+            const MBS: u64 = 256;
+            let mut a = Adb::new(adb_bin());
+            resolve_serial(&mut a, serial)?;
+            println!("{}", t!("Test di velocità ({mb} MB per prova)…", mb = MBS));
+
+            let link_cmd = format!("toybox dd if=/dev/zero bs=1048576 count={MBS} 2>/dev/null");
+            let (_, link) = transfer::bench_exec_out(&a, &link_cmd)?;
+            println!("  {:<46} {:>7.1} MB/s", t!("Collegamento telefono → PC (USB/Wi-Fi)"), link);
+
+            // file grande sul telefono: indicato dall'utente oppure cercato in DCIM/Download/Movies
+            let file = match rest.first() {
+                Some(f) => Some(f.clone()),
+                None => a
+                    .shell("toybox find /sdcard/DCIM /sdcard/Download /sdcard/Movies -type f -size +100M 2>/dev/null | toybox head -n 1")
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
+            };
+            let storage = match &file {
+                Some(f) => {
+                    let cmd = format!("toybox dd if={} bs=1048576 count={MBS} 2>/dev/null", util::sh_quote(f));
+                    let (n, v) = transfer::bench_exec_out(&a, &cmd)?;
+                    println!("  {:<46} {:>7.1} MB/s  ({})", t!("Lettura memoria del telefono"), v, humanize(n));
+                    Some(v)
+                }
+                None => {
+                    println!("  {}", t!("nessun file grande trovato sul telefono: indicane uno con 'abt speedtest <file>'"));
+                    None
+                }
+            };
+
+            let dir = match opts.out.clone() {
+                Some(d) => d,
+                None => util::default_backup_dir().map_err(|e| anyhow::anyhow!(e))?,
+            };
+            let disk = transfer::bench_local_write(&dir, MBS)?;
+            println!("  {:<46} {:>7.1} MB/s  ({dir})", t!("Scrittura sul disco del PC"), disk);
+
+            let mut parts = vec![("link", link), ("disk", disk)];
+            if let Some(v) = storage {
+                parts.push(("storage", v));
+            }
+            let (slow, _) = parts.iter().cloned().fold(("", f64::MAX), |m, p| if p.1 < m.1 { p } else { m });
+            println!();
+            match slow {
+                "link" => {
+                    println!("{}", t!("Collo di bottiglia: il collegamento."));
+                    println!("  {}", t!("Cavo o porta USB 2.0, oppure Wi-Fi? Prova un cavo USB 3 / un'altra porta (meglio sul retro del PC), modalità «trasferimento file» sul telefono, niente hub."));
+                }
+                "storage" => {
+                    println!("{}", t!("Collo di bottiglia: la memoria del telefono."));
+                    println!("  {}", t!("La lettura dal telefono è lenta (memoria piena o molti file piccoli): trasferire una cartella alla volta può andare meglio di tanti file singoli."));
+                }
+                _ => {
+                    println!("{}", t!("Collo di bottiglia: il disco del PC."));
+                    println!("  {}", t!("Disco lento o antivirus in tempo reale: prova un SSD o escludi la cartella di backup da Windows Defender."));
+                }
+            }
+            Ok(())
+        }
         "tui" | "ui" => tui(),
         "devices" => {
             let a = Adb::new(adb_bin());
@@ -520,6 +581,7 @@ USO:
   abt connect IP:5555                collega device via Wi-Fi
   abt wifi                           adbd del device -> modalità tcpip (via USB)
   abt install-adb                    scarica adb (platform-tools) per questo sistema
+  abt speedtest [<file>]             misura la velocità: collegamento, memoria del telefono, disco del PC
 
 FILE E CARTELLE (sul device):
   abt ls [-l] [<remoto>]             elenco (default /sdcard)
