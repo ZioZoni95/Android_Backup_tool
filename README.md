@@ -12,6 +12,14 @@
      ▀██▀▀██▀
       ██  ██
       ▀▀  ▀▀
+
+   █████  ██████  ████████
+  ██   ██ ██   ██    ██
+  ███████ ██████     ██
+  ██   ██ ██   ██    ██
+  ██   ██ ██████     ██
+
+  A ndroid  B ackup  T ool
 ```
 
 Backup e file manager per Android via **adb**, al posto del lento MTP.
