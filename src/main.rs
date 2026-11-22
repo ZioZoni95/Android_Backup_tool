@@ -12,6 +12,9 @@
 //!   abt sms ./sms.jsonl | abt calllog ./chiamate.jsonl
 //!   abt appdata com.example ./appdata
 
+#[macro_use]
+mod i18n;
+mod i18n_en;
 mod actions;
 mod adb;
 mod app;
