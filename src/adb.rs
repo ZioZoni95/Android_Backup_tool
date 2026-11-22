@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use std::process::{Child, Command, Stdio};
 
 /// Device visto da `adb devices -l`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub serial: String,
     pub state: String,

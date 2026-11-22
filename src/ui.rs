@@ -261,7 +261,7 @@ fn draw_help(f: &mut Frame) {
         (t!("R  (F2)"), t!("rinomina")),
         (t!("d  (Canc)"), t!("elimina (con conferma)")),
         (t!("ALTRO"), ""),
-        (t!("click destro  (m)"), t!("menu contestuale: copia, cartella intera, rinomina, elimina…")),
+        (t!("clic dx / Ctrl+clic"), t!("menu contestuale (anche tasto m): copia, cartella intera, rinomina, elimina…")),
         (t!("click sx · doppio click"), t!("seleziona · apri cartella / trasferisci file · rotella scorre")),
         (t!("S"), t!("esporta SMS + registro chiamate")),
         (t!("x"), t!("annulla il trasferimento attivo")),

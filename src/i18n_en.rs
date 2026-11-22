@@ -35,8 +35,6 @@ pub static EN: &[(&str, &str)] = &[
     ("d  (Canc)", "d  (Del)"),
     ("elimina (con conferma)", "delete (with confirmation)"),
     ("ALTRO", "OTHER"),
-    ("click destro  (m)", "right click  (m)"),
-    ("menu contestuale: copia, cartella intera, rinomina, elimina…", "context menu: copy, whole folder, rename, delete…"),
     ("click sx · doppio click", "left click · double click"),
     ("seleziona · apri cartella / trasferisci file · rotella scorre", "select · open folder / transfer file · wheel scrolls"),
     ("esporta SMS + registro chiamate", "export SMS + call log"),
@@ -251,4 +249,7 @@ pub static EN: &[(&str, &str)] = &[
     ("Oppure a mano: `sudo apt install adb` (Debian/Ubuntu), `sudo dnf install android-tools` (Fedora) o `sudo pacman -S android-tools` (Arch), poi riavvia abt.", "Or by hand: `sudo apt install adb` (Debian/Ubuntu), `sudo dnf install android-tools` (Fedora) or `sudo pacman -S android-tools` (Arch), then restart abt."),
     ("adb non trovato sul computer.\n\nScaricare automaticamente Android platform-tools (circa 12 MB) da dl.google.com in:\n{dir}", "adb was not found on this computer.\n\nDownload Android platform-tools automatically (about 12 MB) from dl.google.com into:\n{dir}"),
     ("nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555 — 'a' per indicare dove si trova adb · 'd' per scaricarlo", "no device — plug in via USB (enable USB debugging) or press 'c' for adb connect IP:5555 — 'a' to set where adb is · 'd' to download it"),
+    ("clic dx / Ctrl+clic", "r-click / Ctrl+click"),
+    ("menu contestuale (anche tasto m): copia, cartella intera, rinomina, elimina…", "context menu (also key m): copy, whole folder, rename, delete…"),
+    ("device collegato: {serial}", "device plugged in: {serial}"),
 ];
