@@ -52,7 +52,7 @@ pub fn local_places() -> Vec<Place> {
         (t!("Documenti"), &["Documents", "Documenti"][..]),
         ("Download", &["Downloads", "Download", "Scaricati"][..]),
         (t!("Immagini"), &["Pictures", "Immagini"][..]),
-        ("Video", &["Videos", "Video"][..]),
+        ("Video", &["Videos", "Video", "Movies"][..]),
         (t!("Musica"), &["Music", "Musica"][..]),
     ] {
         if let Some(n) = names.iter().find(|n| Path::new(&format!("{h}/{n}")).is_dir()) {
@@ -81,7 +81,7 @@ pub struct Disk {
     pub avail: u64,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn unescape_mount(s: &str) -> String {
     // /proc/mounts codifica spazi e altri caratteri come \040 (ottale)
     let b = s.as_bytes();
@@ -99,7 +99,43 @@ fn unescape_mount(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-#[cfg(unix)]
+/// Interpreta l'output di `df -k -P` (blocchi da 1 KiB): mount point → (totale, libero) in byte.
+/// Il mount point può contenere spazi, quindi si riuniscono i campi dal sesto in poi.
+#[cfg(any(test, target_os = "macos"))]
+fn parse_df_kib(out: &str) -> std::collections::HashMap<String, (u64, u64)> {
+    let mut m = std::collections::HashMap::new();
+    for line in out.lines().skip(1) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() >= 6 {
+            if let (Ok(total), Ok(avail)) = (f[1].parse::<u64>(), f[3].parse::<u64>()) {
+                m.insert(f[5..].join(" "), (total * 1024, avail * 1024));
+            }
+        }
+    }
+    m
+}
+
+#[cfg(target_os = "macos")]
+/// Volumi montati in `/Volumes` (chiavette, dischi esterni, condivisioni di rete) con spazio totale/libero.
+pub fn mounted_disks() -> Vec<Disk> {
+    let space = std::process::Command::new("df")
+        .args(["-k", "-P"])
+        .output()
+        .map(|o| parse_df_kib(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_default();
+    let mut v: Vec<Disk> = Vec::new();
+    for (mp, (total, avail)) in &space {
+        let Some(name) = mp.strip_prefix("/Volumes/") else { continue };
+        if name.is_empty() || !Path::new(mp).is_dir() {
+            continue;
+        }
+        v.push(Disk { mount: mp.clone(), name: name.to_string(), total: *total, avail: *avail });
+    }
+    v.sort_by(|a, b| a.name.cmp(&b.name));
+    v
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 /// Dischi/partizioni/condivisioni attualmente montati (esclusi filesystem di sistema).
 pub fn mounted_disks() -> Vec<Disk> {
     let Ok(txt) = std::fs::read_to_string("/proc/self/mounts") else { return Vec::new() };
@@ -306,5 +342,20 @@ impl Saved {
             }
         });
         self.save();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_df_kib;
+
+    #[test]
+    fn df_output_with_spaces_in_mount_point() {
+        let out = "Filesystem 1024-blocks Used Available Capacity Mounted on\n\
+/dev/disk3s1s1 971350180 11000000 500000000 3% /\n\
+/dev/disk4s1 15000000 5000000 10000000 34% /Volumes/MY USB\n";
+        let m = parse_df_kib(out);
+        assert_eq!(m["/Volumes/MY USB"], (15_000_000 * 1024, 10_000_000 * 1024));
+        assert_eq!(m["/"].0, 971_350_180 * 1024);
     }
 }

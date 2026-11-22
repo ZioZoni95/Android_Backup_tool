@@ -20,7 +20,7 @@ One binary, two interfaces: a two-pane **TUI** (Local ↔ Device) and a **CLI** 
 | `tar` | streams folders to/from the phone | already on Linux/macOS; on Windows built in since Windows 10 1803 (`System32\tar.exe`) |
 | Phone with **USB debugging** | lets adb connect | Settings → About phone → tap *Build number* 7 times → Developer options → USB debugging; accept the RSA key on first connection |
 | Android 6+ on the phone | uses the phone's built-in `toybox` | — |
-| Terminal with 24-bit colors | TUI look | any modern one; on Windows use **Windows Terminal** |
+| Terminal with 24-bit colors | TUI look | any modern one; Windows: **Windows Terminal**; macOS: Terminal or iTerm2 |
 | Rust 1.80+ | **only to build from source** | [rustup.rs](https://rustup.rs) |
 
 `abt` looks for adb by itself (`ADB_BIN`, saved path, `PATH`, its own folder, Desktop/Downloads, Android SDK).
@@ -30,11 +30,14 @@ on the device screen press `d` to download, `a` to set the path. From a script: 
 ## Install
 
 1. Download the binary for your system from [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
-   (Linux, Windows) and unzip it, or build it: `cargo build --release` (binary in `target/release/abt`).
+   (Linux, macOS, Windows) and unzip it, or build it: `cargo build --release` (binary in `target/release/abt`).
 2. Run `abt`. If adb is not installed it shows OS-specific instructions and offers to **download it
    automatically** (press `y`) — nothing else to install. Or install adb yourself (see above).
 3. Plug in the phone with USB debugging on and pick it from the list.
    For Wi-Fi: connect via USB once, then `abt wifi`.
+
+> **macOS (experimental):** builds for Apple Silicon (`arm64`) and Intel (`x86_64`) are provided but have not been tested on real
+> hardware yet. The binary is unsigned: after unpacking run `xattr -d com.apple.quarantine ./abt` (or right-click → Open) once.
 
 ## How to use
 
@@ -71,7 +74,7 @@ Un solo binario, due interfacce: una **TUI** a due pannelli (Locale ↔ Device) 
 | `tar` | trasferisce le cartelle in streaming | già presente su Linux/macOS; su Windows incluso da Windows 10 1803 (`System32\tar.exe`) |
 | Telefono con **debug USB** | permette la connessione adb | Impostazioni → Info telefono → tocca 7 volte *Numero build* → Opzioni sviluppatore → Debug USB; accetta la chiave RSA al primo collegamento |
 | Android 6+ sul telefono | usa `toybox`, incluso nel sistema | — |
-| Terminale a 24 bit di colore | aspetto della TUI | qualsiasi terminale moderno; su Windows usa **Windows Terminal** |
+| Terminale a 24 bit di colore | aspetto della TUI | qualsiasi terminale moderno; Windows: **Windows Terminal**; macOS: Terminale o iTerm2 |
 | Rust 1.80+ | **solo per compilare dai sorgenti** | [rustup.rs](https://rustup.rs) |
 
 `abt` cerca adb da solo (`ADB_BIN`, percorso salvato, `PATH`, la propria cartella, Desktop/Download, Android SDK).
@@ -81,11 +84,14 @@ nella schermata device premi `d` per scaricarlo, `a` per indicare il percorso. D
 ### Installazione
 
 1. Scarica il binario per il tuo sistema da [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
-   (Linux, Windows) ed estrailo, oppure compila: `cargo build --release` (binario in `target/release/abt`).
+   (Linux, macOS, Windows) ed estrailo, oppure compila: `cargo build --release` (binario in `target/release/abt`).
 2. Avvia `abt`. Se adb non è installato mostra le istruzioni per il tuo sistema e ti propone di
    **scaricarlo automaticamente** (premi `y`) — non serve installare altro. Oppure installa adb a mano (vedi sopra).
 3. Collega il telefono con il debug USB attivo e sceglilo dalla lista.
    Per il Wi-Fi: collega prima via USB, poi `abt wifi`.
+
+> **macOS (sperimentale):** sono disponibili build per Apple Silicon (`arm64`) e Intel (`x86_64`), non ancora provate su hardware
+> reale. Il binario non è firmato: dopo averlo estratto esegui una volta `xattr -d com.apple.quarantine ./abt` (oppure tasto destro → Apri).
 
 ### Come si usa
 
