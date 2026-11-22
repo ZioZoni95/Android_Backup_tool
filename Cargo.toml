@@ -1,7 +1,9 @@
 [package]
 name = "android-backup-tool"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/ZioZoni95/Android_Backup_tool"
 description = "Backup e file manager TUI per Android via adb (alternativa veloce a MTP)"
 
 [[bin]]

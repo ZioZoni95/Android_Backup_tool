@@ -177,6 +177,10 @@ fn run() -> Result<()> {
             print_help();
             Ok(())
         }
+        "version" | "--version" | "-V" => {
+            println!("{}", version_line());
+            Ok(())
+        }
         "tui" | "ui" => tui(),
         "devices" => {
             let a = Adb::new(adb_bin());
@@ -461,6 +465,11 @@ fn two_args(rest: &[String]) -> Result<(String, String)> {
     Ok((rest[0].clone(), rest[1].clone()))
 }
 
+/// Versione e copyright, ad es. `abt 0.3.0 — © 2026 ZioZoni95 — licenza MIT`.
+fn version_line() -> String {
+    format!("abt {} — © 2026 ZioZoni95 — licenza MIT", env!("CARGO_PKG_VERSION"))
+}
+
 fn print_help() {
     for l in util::LOGO {
         println!("\x1b[32m{l}\x1b[0m");
@@ -491,7 +500,9 @@ BACKUP:\n\
 Opzioni: -s SERIAL · -o DIR (destinazione) · -y (niente conferma) · ADB_BIN=/percorso/adb\n\
 Cartella di default: $ABT_BACKUP_DIR oppure ~/Android_Backup/Backup\n\
 \n\
-TUI: premi ? per l'elenco completo dei comandi"
+TUI: premi ? per l'elenco completo dei comandi\n\
+\n{}",
+        version_line()
     );
 }
 

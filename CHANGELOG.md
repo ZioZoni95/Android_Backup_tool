@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-22
+
 ### Added
+- MIT `LICENSE` file; `license` and `repository` fields in `Cargo.toml`.
+- Release archives now ship the `LICENSE` file next to the binary.
+- `abt version` / `--version` / `-V` prints version and copyright; the same line is appended to `abt help`.
 - `transfer::Queue::cancel_queued()` and TUI key `X`: cancels every job still in `Queued` state; the running job is untouched.
 - `JobState` now records `started`/`ended` (`Instant`); `JobSnap` exposes `elapsed` (seconds, frozen once the job ends).
 - Transfers panel: aggregate progress bar (finished jobs + fraction of the running one), per-status counters (`✔ ▶ … ✖ ⊘`), per-job average speed and ETA for running jobs, elapsed time for completed jobs.
@@ -46,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mouse support, right-click context menu with recursive size calculation, clickable breadcrumb, "Go to" menu (places, favorites, recents persisted in `places.txt`, mounted disks).
 - `abt disks`, `abt backup`, `abt apk`, `abt sms`, `abt calllog`, `abt appdata` (`su`/`run-as`).
 
-[Unreleased]: https://github.com/ZioZoni95/Android_Backup_tool/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ZioZoni95/Android_Backup_tool/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ZioZoni95/Android_Backup_tool/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ZioZoni95/Android_Backup_tool/compare/1ec11bf...v0.2.0
 [0.1.0]: https://github.com/ZioZoni95/Android_Backup_tool/commit/1ec11bf

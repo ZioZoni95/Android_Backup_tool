@@ -34,7 +34,11 @@ abt help                             # all commands
 ```
 
 Options: `-s SERIAL` · `-o DIR` · `-y` · `--verify` · `--delete`. Backup folder: `ABT_BACKUP_DIR`.
-Full guide (Italian): [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md)
+Full guide (Italian): [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
+
+## License
+
+Copyright © 2026 ZioZoni95 — released under the [MIT License](LICENSE).
 
 ---
 
@@ -65,4 +69,8 @@ abt help                             # tutti i comandi
 ```
 
 Opzioni: `-s SERIAL` · `-o DIR` · `-y` · `--verify` · `--delete`. Cartella di backup: `ABT_BACKUP_DIR`.
-Guida completa: [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md)
+Guida completa: [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
+
+### Licenza
+
+Copyright © 2026 ZioZoni95 — rilasciato con [licenza MIT](LICENSE).

@@ -23,11 +23,13 @@ jobs:
       - run: cargo build --release --locked
       - name: Package (linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ matrix.asset }} -C target/release abt
+        run: |
+          cp LICENSE target/release/LICENSE
+          tar -czf ${{ matrix.asset }} -C target/release abt LICENSE
       - name: Package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path target/release/abt.exe -DestinationPath ${{ matrix.asset }}
+        run: Compress-Archive -Path target/release/abt.exe,LICENSE -DestinationPath ${{ matrix.asset }}
       - uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.asset }}
