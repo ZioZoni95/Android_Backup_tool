@@ -68,7 +68,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TUI prompt (`InputAction::AdbPath`) opened at startup when adb cannot be found, and via `a` on the device screen; accepts either `adb[.exe]` or the directory containing it, validated with `adb version`.
 - `places::cfg_dir()` shared config directory (`XDG_CONFIG_HOME` → `%APPDATA%` → `~/.config`, plus `abt/`).
 - `.github/workflows/release.yml`: on `v*` tags builds Linux (`abt-linux-x86_64.tar.gz`) and Windows (`abt-windows-x86_64.zip`) binaries and attaches them to a GitHub release.
-- `CLAUDE.md` with build commands and architecture notes.
 - `docs/USAGE.it.md`: full Italian usage guide (moved out of the README).
 
 ### Changed

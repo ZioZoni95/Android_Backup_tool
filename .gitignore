@@ -1,2 +1,5 @@
 /target
 *.part
+
+# Local assistant notes (not part of the repo)
+CLAUDE.md
