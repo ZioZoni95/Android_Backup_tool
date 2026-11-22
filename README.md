@@ -53,6 +53,8 @@ abt help                             # all commands
 ```
 
 Options: `-s SERIAL` · `-o DIR` · `-y` · `--verify` · `--delete`. Backup folder: `ABT_BACKUP_DIR`.
+Context menu: right click (or middle click / Ctrl+click / `m`). In VS Code's terminal, right click also pastes the clipboard unless you set
+`terminal.integrated.rightClickBehavior` to `nothing`.
 Language: automatic from your system (Italian or English); force it with `ABT_LANG=it` / `ABT_LANG=en`.
 Full guide (Italian): [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
@@ -108,6 +110,8 @@ abt help                             # tutti i comandi
 ```
 
 Opzioni: `-s SERIAL` · `-o DIR` · `-y` · `--verify` · `--delete`. Cartella di backup: `ABT_BACKUP_DIR`.
+Menu contestuale: click destro (o centrale / Ctrl+clic / `m`). Nel terminale di VS Code il click destro incolla anche gli appunti, a meno di
+impostare `terminal.integrated.rightClickBehavior` su `nothing`.
 Lingua: automatica dal sistema (italiano o inglese); si forza con `ABT_LANG=it` / `ABT_LANG=en`.
 Guida completa: [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
