@@ -181,6 +181,40 @@ fn run() -> Result<()> {
             println!("{}", version_line());
             Ok(())
         }
+        "install-adb" => {
+            use std::sync::Arc;
+            let st = Arc::new(Mutex::new(adb::DlState::default()));
+            let st2 = st.clone();
+            let h = std::thread::spawn(move || {
+                let r = adb::download_platform_tools(&st2).map_err(|e| format!("{e:#}"));
+                st2.lock().unwrap().result = Some(r);
+            });
+            loop {
+                std::thread::sleep(Duration::from_millis(300));
+                let g = st.lock().unwrap();
+                if g.result.is_some() {
+                    break;
+                }
+                if g.extracting {
+                    eprint!("\r{}   ", t!("estrazione in corso…"));
+                } else if g.total > 0 {
+                    eprint!("\r{} / {} ({}%)   ", humanize(g.done), humanize(g.total), g.done * 100 / g.total.max(1));
+                } else {
+                    eprint!("\r{} {}   ", t!("download in corso…"), humanize(g.done));
+                }
+            }
+            let _ = h.join();
+            eprintln!();
+            let res = st.lock().unwrap().result.take().unwrap();
+            match res {
+                Ok(bin) => {
+                    adb::save_path(&bin);
+                    println!("{}", t!("adb scaricato: {bin}", bin = bin));
+                    Ok(())
+                }
+                Err(e) => bail!(e),
+            }
+        }
         "tui" | "ui" => tui(),
         "devices" => {
             let a = Adb::new(adb_bin());
@@ -485,6 +519,7 @@ USO:
   abt devices                        elenco device collegati
   abt connect IP:5555                collega device via Wi-Fi
   abt wifi                           adbd del device -> modalità tcpip (via USB)
+  abt install-adb                    scarica adb (platform-tools) per questo sistema
 
 FILE E CARTELLE (sul device):
   abt ls [-l] [<remoto>]             elenco (default /sdcard)

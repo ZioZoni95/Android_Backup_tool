@@ -20,6 +20,140 @@ pub struct DeviceInfo {
     pub abi: String,
 }
 
+fn exe_name() -> &'static str {
+    if cfg!(windows) {
+        "adb.exe"
+    } else {
+        "adb"
+    }
+}
+
+/// Cartella in cui `abt` installa platform-tools quando li scarica (`<config>/abt/platform-tools`).
+pub fn managed_dir() -> Option<String> {
+    Some(format!("{}/platform-tools", crate::places::cfg_dir()?))
+}
+
+/// adb scaricato da `abt`, se presente.
+pub fn managed_bin() -> Option<String> {
+    Some(format!("{}/{}", managed_dir()?, exe_name()))
+}
+
+/// URL ufficiale di platform-tools per il sistema operativo corrente.
+pub fn platform_tools_url() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
+    } else if cfg!(target_os = "macos") {
+        "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip"
+    } else {
+        "https://dl.google.com/android/repository/platform-tools-latest-linux.zip"
+    }
+}
+
+/// Testo dell'offerta di download, con le istruzioni manuali adatte al sistema operativo.
+pub fn download_offer_text() -> String {
+    let manual = if cfg!(target_os = "windows") {
+        t!("Oppure a mano: scarica platform-tools da https://developer.android.com/tools/releases/platform-tools, estrai la cartella e premi n per indicarne il percorso.")
+    } else if cfg!(target_os = "macos") {
+        t!("Oppure a mano: `brew install android-platform-tools`, poi riavvia abt.")
+    } else {
+        t!("Oppure a mano: `sudo apt install adb` (Debian/Ubuntu), `sudo dnf install android-tools` (Fedora) o `sudo pacman -S android-tools` (Arch), poi riavvia abt.")
+    };
+    format!(
+        "{}\n\n{}",
+        t!(
+            "adb non trovato sul computer.\n\nScaricare automaticamente Android platform-tools (circa 12 MB) da dl.google.com in:\n{dir}",
+            dir = managed_dir().unwrap_or_default()
+        ),
+        manual
+    )
+}
+
+/// Stato condiviso fra il thread di download e la TUI.
+#[derive(Default)]
+pub struct DlState {
+    pub done: u64,
+    pub total: u64,
+    pub extracting: bool,
+    pub cancel: bool,
+    pub result: Option<std::result::Result<String, String>>,
+}
+
+/// Scarica platform-tools da dl.google.com, li estrae in `managed_dir()` e restituisce il percorso di adb.
+pub fn download_platform_tools(st: &std::sync::Mutex<DlState>) -> Result<String> {
+    use anyhow::bail;
+    use std::io::Read;
+    use std::time::Duration;
+
+    const MAX_BYTES: u64 = 300 * 1024 * 1024;
+    let cfg = crate::places::cfg_dir().context(t!("cartella di configurazione non disponibile"))?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(Duration::from_secs(30))
+        .build();
+    let resp = agent
+        .get(platform_tools_url())
+        .call()
+        .with_context(|| t!("download non riuscito da {url}", url = platform_tools_url()))?;
+    let total: u64 = resp.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0);
+    st.lock().unwrap().total = total;
+    let mut reader = resp.into_reader();
+    let mut data: Vec<u8> = Vec::with_capacity(total as usize);
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        if st.lock().unwrap().cancel {
+            bail!(crate::transfer::Cancelled);
+        }
+        let n = reader.read(&mut buf).context(t!("lettura del download interrotta"))?;
+        if n == 0 {
+            break;
+        }
+        data.extend_from_slice(&buf[..n]);
+        if data.len() as u64 > MAX_BYTES {
+            bail!(t!("il download supera la dimensione attesa"));
+        }
+        st.lock().unwrap().done = data.len() as u64;
+    }
+    st.lock().unwrap().extracting = true;
+
+    // Un adb server avviato da una versione precedente tiene bloccato adb.exe su Windows.
+    if let Some(old) = managed_bin() {
+        if std::path::Path::new(&old).exists() {
+            let _ = Command::new(&old).arg("kill-server").stdin(Stdio::null()).output();
+        }
+    }
+
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(data)).context(t!("archivio zip non valido"))?;
+    let dest = std::path::Path::new(&cfg);
+    for i in 0..zip.len() {
+        let mut f = zip.by_index(i).context(t!("archivio zip non valido"))?;
+        // `enclosed_name` scarta percorsi assoluti o con `..` (zip-slip).
+        let Some(rel) = f.enclosed_name() else { continue };
+        let out = dest.join(rel);
+        if f.is_dir() {
+            std::fs::create_dir_all(&out)?;
+            continue;
+        }
+        if let Some(p) = out.parent() {
+            std::fs::create_dir_all(p)?;
+        }
+        let mut o = std::fs::File::create(&out).with_context(|| t!("creazione di {path}", path = out.display()))?;
+        std::io::copy(&mut f, &mut o)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Some(m) = f.unix_mode() {
+                let _ = std::fs::set_permissions(&out, std::fs::Permissions::from_mode(m));
+            }
+        }
+    }
+
+    let bin = managed_bin().context(t!("cartella di configurazione non disponibile"))?;
+    if !works(&bin) {
+        bail!(t!("adb scaricato ma non eseguibile: {bin}", bin = bin));
+    }
+    Ok(bin)
+}
+
 /// True se `bin` è un adb eseguibile (`adb version` termina con successo).
 pub fn works(bin: &str) -> bool {
     Command::new(bin)
@@ -68,6 +202,15 @@ pub fn candidates() -> Vec<String> {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     let home = crate::util::home_dir();
+
+    // adb scaricato da abt, poi quello accanto all'eseguibile (anche in ./platform-tools).
+    if let Some(m) = managed_dir() {
+        dirs.push(m.into());
+    }
+    if let Some(d) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        dirs.push(d.join("platform-tools"));
+        dirs.push(d);
+    }
 
     if let Some(h) = &home {
         // Cartelle utente: adb direttamente o in una sottocartella tipo "ADB TOOLS", "platform-tools".
