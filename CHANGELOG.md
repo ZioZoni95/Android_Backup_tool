@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `adb::download_platform_tools` (`ureq` + `zip`, no external tools): streams into memory with a 300 MB cap, extracts with `enclosed_name()` (zip-slip safe), restores Unix modes, runs `adb kill-server` on a previous managed copy first (Windows file lock), verifies with `adb version`.
 - adb lookup now also checks the managed copy and the executable's own folder (`./adb`, `./platform-tools/adb`).
 - New dependencies: `ureq` 2 (rustls), `zip` 2 (deflate only).
+- README: documents the automatic adb download in the requirements table and install steps (EN/IT).
 
 ## [0.4.0] - 2026-11-22
 

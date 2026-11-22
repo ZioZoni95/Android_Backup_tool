@@ -16,7 +16,7 @@ One binary, two interfaces: a two-pane **TUI** (Local ↔ Device) and a **CLI** 
 
 | Needed | Why | How to get it |
 |---|---|---|
-| **adb** (Android platform-tools) | **required**: all communication with the phone goes through it | Windows/macOS/Linux: [platform-tools](https://developer.android.com/tools/releases/platform-tools) (unzip anywhere) · Debian/Ubuntu: `sudo apt install adb` · Fedora: `sudo dnf install android-tools` · macOS: `brew install android-platform-tools` |
+| **adb** (Android platform-tools) | **required**: all communication with the phone goes through it | **`abt` can download it for you on first run** (no install needed). Or by hand — Windows/macOS/Linux: [platform-tools](https://developer.android.com/tools/releases/platform-tools) (unzip anywhere) · Debian/Ubuntu: `sudo apt install adb` · Fedora: `sudo dnf install android-tools` · macOS: `brew install android-platform-tools` |
 | `tar` | streams folders to/from the phone | already on Linux/macOS; on Windows built in since Windows 10 1803 (`System32\tar.exe`) |
 | Phone with **USB debugging** | lets adb connect | Settings → About phone → tap *Build number* 7 times → Developer options → USB debugging; accept the RSA key on first connection |
 | Android 6+ on the phone | uses the phone's built-in `toybox` | — |
@@ -31,9 +31,10 @@ on the device screen press `d` to download, `a` to set the path. From a script: 
 
 1. Download the binary for your system from [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
    (Linux, Windows) and unzip it, or build it: `cargo build --release` (binary in `target/release/abt`).
-2. Install **adb** (see above) and plug in the phone with USB debugging on.
+2. Run `abt`. If adb is not installed it shows OS-specific instructions and offers to **download it
+   automatically** (press `y`) — nothing else to install. Or install adb yourself (see above).
+3. Plug in the phone with USB debugging on and pick it from the list.
    For Wi-Fi: connect via USB once, then `abt wifi`.
-3. Run `abt`.
 
 ## How to use
 
@@ -66,7 +67,7 @@ Un solo binario, due interfacce: una **TUI** a due pannelli (Locale ↔ Device) 
 
 | Serve | Perché | Come ottenerlo |
 |---|---|---|
-| **adb** (Android platform-tools) | **obbligatorio**: tutta la comunicazione col telefono passa da lì | Windows/macOS/Linux: [platform-tools](https://developer.android.com/tools/releases/platform-tools) (estrai ovunque) · Debian/Ubuntu: `sudo apt install adb` · Fedora: `sudo dnf install android-tools` · macOS: `brew install android-platform-tools` |
+| **adb** (Android platform-tools) | **obbligatorio**: tutta la comunicazione col telefono passa da lì | **`abt` può scaricarlo per te al primo avvio** (nessuna installazione). Oppure a mano — Windows/macOS/Linux: [platform-tools](https://developer.android.com/tools/releases/platform-tools) (estrai ovunque) · Debian/Ubuntu: `sudo apt install adb` · Fedora: `sudo dnf install android-tools` · macOS: `brew install android-platform-tools` |
 | `tar` | trasferisce le cartelle in streaming | già presente su Linux/macOS; su Windows incluso da Windows 10 1803 (`System32\tar.exe`) |
 | Telefono con **debug USB** | permette la connessione adb | Impostazioni → Info telefono → tocca 7 volte *Numero build* → Opzioni sviluppatore → Debug USB; accetta la chiave RSA al primo collegamento |
 | Android 6+ sul telefono | usa `toybox`, incluso nel sistema | — |
@@ -81,9 +82,10 @@ nella schermata device premi `d` per scaricarlo, `a` per indicare il percorso. D
 
 1. Scarica il binario per il tuo sistema da [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
    (Linux, Windows) ed estrailo, oppure compila: `cargo build --release` (binario in `target/release/abt`).
-2. Installa **adb** (vedi sopra) e collega il telefono con il debug USB attivo.
+2. Avvia `abt`. Se adb non è installato mostra le istruzioni per il tuo sistema e ti propone di
+   **scaricarlo automaticamente** (premi `y`) — non serve installare altro. Oppure installa adb a mano (vedi sopra).
+3. Collega il telefono con il debug USB attivo e sceglilo dalla lista.
    Per il Wi-Fi: collega prima via USB, poi `abt wifi`.
-3. Avvia `abt`.
 
 ### Come si usa
 
