@@ -1,6 +1,6 @@
 //! Rendering TUI (ratatui).
 
-use crate::app::{App, Side, Screen};
+use crate::app::{App, ConfirmAction, Side, Screen};
 use crate::transfer::{Direction, JobKind, JobSnap, Status};
 use crate::util::{fmt_date, humanize};
 use ratatui::layout::{Constraint, Direction as LDirection, Layout, Rect};
@@ -88,6 +88,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::Goto { .. } => {
             draw_files(f, app);
             draw_goto(f, app);
+        }
+        Screen::Download => {
+            draw_devices(f, app, 0);
+            draw_download(f, app);
+        }
+        Screen::Confirm { action: ConfirmAction::DownloadAdb, .. } => {
+            draw_devices(f, app, 0);
+            draw_dialog(f, app);
         }
         Screen::Confirm { .. } | Screen::Input { .. } => {
             draw_files(f, app);
@@ -319,7 +327,7 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
     }
 
     if app.devices.is_empty() {
-        let msg = t!("nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555 — 'a' per indicare dove si trova adb");
+        let msg = t!("nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555 — 'a' per indicare dove si trova adb · 'd' per scaricarlo");
         f.render_widget(
             Paragraph::new(msg)
                 .alignment(ratatui::layout::Alignment::Center)
@@ -715,12 +723,48 @@ fn centered_rect(px: u16, py: u16, r: Rect) -> Rect {
     h[1]
 }
 
+fn draw_download(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 25, f.area());
+    f.render_widget(Clear, area);
+    let (done, total, extracting) = app
+        .dl
+        .as_ref()
+        .map(|d| {
+            let g = d.lock().unwrap();
+            (g.done, g.total, g.extracting)
+        })
+        .unwrap_or((0, 0, false));
+    let body = if extracting {
+        t!("estrazione in corso…").to_string()
+    } else if total > 0 {
+        format!("{}  {} / {}  ({}%)", bar(done * 100 / total.max(1), 24), humanize(done), humanize(total), done * 100 / total.max(1))
+    } else {
+        format!("{}  {}", t!("download in corso…"), humanize(done))
+    };
+    f.render_widget(
+        Paragraph::new(format!("\n {body}\n\n {}", t!("Esc = annulla"))).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(accent(Side::Remote)))
+                .title(t!(" Scarico platform-tools (adb) ")),
+        ),
+        area,
+    );
+}
+
 fn draw_dialog(f: &mut Frame, app: &App) {
     match &app.screen {
-        Screen::Confirm { title, message, .. } => {
-            let area = centered_rect(60, 30, f.area());
+        Screen::Confirm { title, message, action } => {
+            let is_dl = matches!(action, ConfirmAction::DownloadAdb);
+            let area = if is_dl { centered_rect(72, 55, f.area()) } else { centered_rect(60, 30, f.area()) };
             f.render_widget(Clear, area);
-            let txt = format!("{message}\n\n{}", t!(" y = conferma   n = annulla"));
+            let hint = if is_dl {
+                t!(" y = scarica   n = indica il percorso a mano")
+            } else {
+                t!(" y = conferma   n = annulla")
+            };
+            let txt = format!("{message}\n\n{hint}");
             f.render_widget(
                 Paragraph::new(txt)
                     .wrap(Wrap { trim: true })

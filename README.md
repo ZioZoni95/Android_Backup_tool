@@ -23,8 +23,9 @@ One binary, two interfaces: a two-pane **TUI** (Local ↔ Device) and a **CLI** 
 | Terminal with 24-bit colors | TUI look | any modern one; on Windows use **Windows Terminal** |
 | Rust 1.80+ | **only to build from source** | [rustup.rs](https://rustup.rs) |
 
-`abt` looks for adb by itself (`ADB_BIN`, saved path, `PATH`, Desktop/Downloads, Android SDK) and,
-if it can't find it, asks for its location at startup (press `a` on the device screen to change it later).
+`abt` looks for adb by itself (`ADB_BIN`, saved path, `PATH`, its own folder, Desktop/Downloads, Android SDK).
+If it can't find it, the TUI offers to **download platform-tools for you** (or to enter the path by hand);
+on the device screen press `d` to download, `a` to set the path. From a script: `abt install-adb`.
 
 ## Install
 
@@ -72,8 +73,9 @@ Un solo binario, due interfacce: una **TUI** a due pannelli (Locale ↔ Device) 
 | Terminale a 24 bit di colore | aspetto della TUI | qualsiasi terminale moderno; su Windows usa **Windows Terminal** |
 | Rust 1.80+ | **solo per compilare dai sorgenti** | [rustup.rs](https://rustup.rs) |
 
-`abt` cerca adb da solo (`ADB_BIN`, percorso salvato, `PATH`, Desktop/Download, Android SDK) e,
-se non lo trova, ti chiede dove si trova all'avvio (poi `a` nella schermata device per cambiarlo).
+`abt` cerca adb da solo (`ADB_BIN`, percorso salvato, `PATH`, la propria cartella, Desktop/Download, Android SDK).
+Se non lo trova, la TUI ti propone di **scaricare platform-tools al posto tuo** (o di indicare il percorso a mano);
+nella schermata device premi `d` per scaricarlo, `a` per indicare il percorso. Da script: `abt install-adb`.
 
 ### Installazione
 

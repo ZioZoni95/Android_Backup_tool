@@ -36,6 +36,8 @@ pub enum Screen {
         action: InputAction,
     },
     Help,
+    /// Download di platform-tools in corso (stato in `App::dl`).
+    Download,
     /// Elenco "Vai a…" (luoghi, preferiti, recenti).
     Goto {
         side: Side,
@@ -86,6 +88,8 @@ pub fn popup_rect(maxw: usize, n: usize, pos: (u16, u16), screen: Rect) -> Rect 
 
 #[derive(Debug, Clone)]
 pub enum ConfirmAction {
+    /// Scarica platform-tools (adb non trovato).
+    DownloadAdb,
     DeleteDevice(Vec<String>),
     DeleteLocal(Vec<String>),
 }
@@ -196,6 +200,7 @@ pub struct App {
     last_click: Option<(std::time::Instant, Side, usize)>,
     pub saved: crate::places::Saved,
     size_rx: Option<Receiver<(u64, String)>>,
+    pub dl: Option<Arc<Mutex<crate::adb::DlState>>>,
     menu_gen: u64,
 }
 
@@ -266,6 +271,15 @@ fn default_backup_dir(log: &mut VecDeque<String>) -> String {
     }
 }
 
+/// Schermata di conferma per scaricare adb, con le istruzioni manuali per il sistema in uso.
+fn download_offer_screen() -> Screen {
+    Screen::Confirm {
+        title: t!("Scarica adb").into(),
+        message: crate::adb::download_offer_text(),
+        action: ConfirmAction::DownloadAdb,
+    }
+}
+
 impl App {
     pub fn new() -> Self {
         let mut log = VecDeque::new();
@@ -274,17 +288,13 @@ impl App {
             Ok(b) => b,
             Err(b) => {
                 log.push_back(format!("⚠ {}", crate::adb::missing_hint()));
-                screen = Screen::Input {
-                    title: crate::adb::path_prompt(),
-                    value: String::new(),
-                    action: InputAction::AdbPath,
-                };
+                screen = download_offer_screen();
                 b
             }
         };
         let adb = Adb::new(bin);
         let mut devices = Vec::new();
-        if !matches!(screen, Screen::Input { .. }) {
+        if !matches!(screen, Screen::Confirm { .. }) {
             match adb.devices() {
                 Ok(v) => devices = v,
                 Err(e) => log.push_back(format!("⚠ adb: {e}")),
@@ -309,6 +319,7 @@ impl App {
             last_click: None,
             saved: crate::places::Saved::load(),
             size_rx: None,
+            dl: None,
             menu_gen: 0,
         }
     }
@@ -322,6 +333,7 @@ impl App {
 
     /// Drena i risultati asincroni (listing remoto, messaggi da thread).
     pub fn poll(&mut self) {
+        self.poll_download();
         if let Some(rx) = self.size_rx.as_ref() {
             while let Ok((g, txt)) = rx.try_recv() {
                 if g == self.menu_gen {
@@ -852,11 +864,20 @@ impl App {
             Screen::Confirm { action, .. } => action.clone(),
             _ => return,
         };
+        if let ConfirmAction::DownloadAdb = action {
+            if yes {
+                self.start_download();
+            } else {
+                self.adb_path_request();
+            }
+            return;
+        }
         self.screen = Screen::Files;
         if !yes {
             return;
         }
         match action {
+            ConfirmAction::DownloadAdb => {}
             ConfirmAction::DeleteDevice(paths) => {
                 let mut ok = 0;
                 for p in &paths {
@@ -920,6 +941,47 @@ impl App {
             value: String::new(),
             action: InputAction::Connect,
         };
+    }
+
+    /// Schermata device: `d` -> offerta di download di adb.
+    pub fn adb_download_request(&mut self) {
+        self.screen = download_offer_screen();
+    }
+
+    /// Avvia il download di platform-tools in un thread.
+    fn start_download(&mut self) {
+        let st = Arc::new(Mutex::new(crate::adb::DlState::default()));
+        self.dl = Some(st.clone());
+        self.screen = Screen::Download;
+        std::thread::spawn(move || {
+            let res = crate::adb::download_platform_tools(&st).map_err(|e| format!("{e:#}"));
+            st.lock().unwrap().result = Some(res);
+        });
+    }
+
+    /// Controlla l'esito del download e, se riuscito, passa al nuovo adb.
+    fn poll_download(&mut self) {
+        let Some(st) = self.dl.clone() else { return };
+        let res = st.lock().unwrap().result.take();
+        let Some(res) = res else { return };
+        self.dl = None;
+        match res {
+            Ok(bin) => {
+                crate::adb::save_path(&bin);
+                self.log(t!("adb scaricato: {bin}", bin = bin));
+                self.adb.bin = bin;
+                self.refresh_devices();
+                self.screen = Screen::Devices { sel: 0 };
+            }
+            Err(e) => {
+                self.log(format!("⚠ {e}"));
+                self.screen = Screen::Input {
+                    title: t!("download non riuscito: {e} — indica il percorso di adb a mano (Esc per saltare)", e = e),
+                    value: String::new(),
+                    action: InputAction::AdbPath,
+                };
+            }
+        }
     }
 
     /// Schermata device: `a` -> input percorso di adb.
@@ -1577,6 +1639,7 @@ impl App {
             Files,
             Confirm(#[allow(dead_code)] ConfirmAction),
             Input(InputAction, String),
+            Download,
             Help,
             Menu,
             Goto,
@@ -1586,6 +1649,7 @@ impl App {
             Screen::Files => Route::Files,
             Screen::Confirm { action, .. } => Route::Confirm(action.clone()),
             Screen::Input { action, value, .. } => Route::Input(action.clone(), value.clone()),
+            Screen::Download => Route::Download,
             Screen::Help => Route::Help,
             Screen::Menu { .. } => Route::Menu,
             Screen::Goto { .. } => Route::Goto,
@@ -1597,6 +1661,7 @@ impl App {
                 KeyCode::Enter => self.connect(sel),
                 KeyCode::Char('c') => self.connect_request(),
                 KeyCode::Char('a') => self.adb_path_request(),
+                KeyCode::Char('d') => self.adb_download_request(),
                 KeyCode::Char('r') => self.refresh_devices(),
                 KeyCode::Char('q') => self.quit = true,
                 _ => {}
@@ -1724,6 +1789,13 @@ impl App {
                 }
                 _ => self.screen = Screen::Files,
             },
+            Route::Download => {
+                if key.code == KeyCode::Esc {
+                    if let Some(d) = &self.dl {
+                        d.lock().unwrap().cancel = true;
+                    }
+                }
+            }
             Route::Confirm(_) => match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => self.confirm(true),
                 KeyCode::Char('n') | KeyCode::Esc => self.confirm(false),
