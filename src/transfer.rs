@@ -439,6 +439,53 @@ fn pipe<R: Read, W: Write>(
     }
 }
 
+/// Legge fino a EOF l'output di un comando `exec-out` e restituisce (byte, MB/s): serve a misurare
+/// il collegamento (`dd` da `/dev/zero`) o la lettura della memoria del telefono (`dd` da un file).
+pub fn bench_exec_out(adb: &Adb, cmd: &str) -> Result<(u64, f64)> {
+    let mut child = adb.exec_out(cmd)?;
+    let mut out = child.stdout.take().context(t!("stdout adb assente"))?;
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut total = 0u64;
+    let t0 = std::time::Instant::now();
+    loop {
+        let n = out.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        total += n as u64;
+    }
+    let secs = t0.elapsed().as_secs_f64().max(1e-6);
+    let _ = child.wait();
+    Ok((total, total as f64 / MB as f64 / secs))
+}
+
+/// Velocità di scrittura (MB/s) sul disco in cui finiscono i backup: scrive `mb` MB pseudo-casuali
+/// in un file temporaneo, li forza su disco e li cancella.
+pub fn bench_local_write(dir: &str, mb: u64) -> Result<f64> {
+    fs::create_dir_all(dir)?;
+    let p = format!("{}/.abt-speedtest.tmp", dir.trim_end_matches('/'));
+    let mut f = fs::File::create(&p).with_context(|| t!("creazione di {path}", path = p))?;
+    let mut chunk = vec![0u8; MB as usize];
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    for b in chunk.chunks_mut(8) {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let le = x.to_le_bytes();
+        b.copy_from_slice(&le[..b.len()]);
+    }
+    let t0 = std::time::Instant::now();
+    for i in 0..mb {
+        chunk[..8].copy_from_slice(&i.to_le_bytes()); // ogni blocco diverso
+        f.write_all(&chunk)?;
+    }
+    f.sync_all()?;
+    let secs = t0.elapsed().as_secs_f64().max(1e-6);
+    drop(f);
+    let _ = fs::remove_file(&p);
+    Ok(mb as f64 / secs)
+}
+
 /// Pull di un singolo file con resume su `.part` (dd skip di MB interi).
 pub fn pull_file(
     adb: &Adb,
@@ -775,4 +822,19 @@ pub fn sync_mirror(
     }
     stats.bytes = total;
     Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_write_bench_measures_and_cleans_up() {
+        let dir = std::env::temp_dir().join("abt-test-speed");
+        let d = dir.to_string_lossy().into_owned();
+        let v = bench_local_write(&d, 16).unwrap();
+        assert!(v > 0.0);
+        assert!(!dir.join(".abt-speedtest.tmp").exists(), "il file temporaneo va rimosso");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
