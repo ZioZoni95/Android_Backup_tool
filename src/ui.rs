@@ -98,7 +98,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn header(f: &mut Frame, area: Rect, app: &App) {
     let connected = app.info.is_some();
-    let info = app.info.clone().unwrap_or_else(|| "nessun device connesso".into());
+    let info = app.info.clone().unwrap_or_else(|| t!("nessun device connesso").into());
     let left = Line::from(vec![
         Span::styled(
             " ◉ ABT ",
@@ -117,7 +117,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
     let side = app.active;
-    let (name, other) = if side == Side::Local { ("LOCALE", "DEVICE") } else { ("DEVICE", "LOCALE") };
+    let (name, other) = if side == Side::Local { (t!("LOCALE"), "DEVICE") } else { ("DEVICE", t!("LOCALE")) };
     let right = Line::from(vec![
         Span::styled(format!(" {other} "), Style::default().fg(DIM)),
         Span::styled(" ⇄ ", Style::default().fg(DIM)),
@@ -190,7 +190,7 @@ fn draw_goto(f: &mut Frame, app: &App) {
     let rows: Vec<ListItem> = items.iter().map(|(l, _)| ListItem::new(Line::from(format!(" {l} ")))).collect();
     let mut st = ListState::default();
     st.select(Some(*sel));
-    let title = if *side == Side::Local { " Vai a… (Locale) " } else { " Vai a… (Device) " };
+    let title = if *side == Side::Local { t!(" Vai a… (Locale) ") } else { t!(" Vai a… (Device) ") };
     let list = List::new(rows)
         .block(
             Block::default()
@@ -198,7 +198,7 @@ fn draw_goto(f: &mut Frame, app: &App) {
         .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(accent(*side)))
                 .title(title)
-                .title_bottom(" ▸ luoghi · ★ preferiti (B) · ↺ recenti "),
+                .title_bottom(t!(" ▸ luoghi · ★ preferiti (B) · ↺ recenti ")),
         )
         .highlight_style(Style::default().fg(Color::Black).bg(accent(*side)));
     f.render_stateful_widget(list, r, &mut st);
@@ -231,33 +231,33 @@ fn draw_help(f: &mut Frame) {
     let area = centered_rect(80, 85, f.area());
     f.render_widget(Clear, area);
     let rows: &[(&str, &str)] = &[
-        ("NAVIGAZIONE", ""),
-        ("Tab / Shift+Tab", "cambia pannello"),
-        ("↑↓  j k   PgUp PgDn", "muovi cursore · Home/G inizio/fine"),
-        ("g  (o click sul titolo)", "Vai a…: luoghi, preferiti, recenti, percorso a mano"),
-        ("click sul percorso", "clic su un segmento del path in alto per saltarci"),
-        ("B", "aggiungi/rimuovi la cartella corrente dai preferiti"),
-        ("→ l   ← h Backspace", "entra in cartella · cartella padre"),
-        ("Invio", "cartella: entra · file: trasferisce nell'altro pannello"),
-        ("/", "filtra per nome (Esc rimuove il filtro)"),
-        ("o   .", "ordina nome/dimensione/data · mostra nascosti"),
-        ("r", "aggiorna pannello"),
-        ("SELEZIONE", ""),
-        ("Spazio / Ins", "marca/smarca e scende · J/K o Shift+↑↓ estendi"),
-        ("a   *   Esc", "seleziona tutto · inverti · azzera selezione"),
-        ("FILE E CARTELLE", ""),
-        ("y   p", "pull / push: chiede la cartella di destinazione (Invio conferma)"),
-        ("T  (o y/p su ..)", "trasferisce l'INTERA cartella corrente"),
-        ("s", "sync incrementale della cartella device → locale"),
-        ("n  (F7)", "nuova cartella"),
-        ("R  (F2)", "rinomina"),
-        ("d  (Canc)", "elimina (con conferma)"),
-        ("ALTRO", ""),
-        ("click destro  (m)", "menu contestuale: copia, cartella intera, rinomina, elimina…"),
-        ("click sx · doppio click", "seleziona · apri cartella / trasferisci file · rotella scorre"),
-        ("S", "esporta SMS + registro chiamate"),
-        ("x", "annulla il trasferimento attivo"),
-        ("q  Ctrl+C", "esci"),
+        (t!("NAVIGAZIONE"), ""),
+        (t!("Tab / Shift+Tab"), t!("cambia pannello")),
+        (t!("↑↓  j k   PgUp PgDn"), t!("muovi cursore · Home/G inizio/fine")),
+        (t!("g  (o click sul titolo)"), t!("Vai a…: luoghi, preferiti, recenti, percorso a mano")),
+        (t!("click sul percorso"), t!("clic su un segmento del path in alto per saltarci")),
+        (t!("B"), t!("aggiungi/rimuovi la cartella corrente dai preferiti")),
+        (t!("→ l   ← h Backspace"), t!("entra in cartella · cartella padre")),
+        (t!("Invio"), t!("cartella: entra · file: trasferisce nell'altro pannello")),
+        (t!("/"), t!("filtra per nome (Esc rimuove il filtro)")),
+        (t!("o   ."), t!("ordina nome/dimensione/data · mostra nascosti")),
+        (t!("r"), t!("aggiorna pannello")),
+        (t!("SELEZIONE"), ""),
+        (t!("Spazio / Ins"), t!("marca/smarca e scende · J/K o Shift+↑↓ estendi")),
+        (t!("a   *   Esc"), t!("seleziona tutto · inverti · azzera selezione")),
+        (t!("FILE E CARTELLE"), ""),
+        (t!("y   p"), t!("pull / push: chiede la cartella di destinazione (Invio conferma)")),
+        (t!("T  (o y/p su ..)"), t!("trasferisce l'INTERA cartella corrente")),
+        (t!("s"), t!("sync incrementale della cartella device → locale")),
+        (t!("n  (F7)"), t!("nuova cartella")),
+        (t!("R  (F2)"), t!("rinomina")),
+        (t!("d  (Canc)"), t!("elimina (con conferma)")),
+        (t!("ALTRO"), ""),
+        (t!("click destro  (m)"), t!("menu contestuale: copia, cartella intera, rinomina, elimina…")),
+        (t!("click sx · doppio click"), t!("seleziona · apri cartella / trasferisci file · rotella scorre")),
+        (t!("S"), t!("esporta SMS + registro chiamate")),
+        (t!("x"), t!("annulla il trasferimento attivo")),
+        (t!("q  Ctrl+C"), t!("esci")),
     ];
     let lines: Vec<Line> = rows
         .iter()
@@ -281,7 +281,7 @@ fn draw_help(f: &mut Frame) {
                 .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(accent(Side::Remote)))
-                .title(" Comandi — qualsiasi tasto per chiudere "),
+                .title(t!(" Comandi — qualsiasi tasto per chiudere ")),
         ),
         area,
     );
@@ -319,7 +319,7 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
     }
 
     if app.devices.is_empty() {
-        let msg = "nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555 — 'a' per indicare dove si trova adb";
+        let msg = t!("nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555 — 'a' per indicare dove si trova adb");
         f.render_widget(
             Paragraph::new(msg)
                 .alignment(ratatui::layout::Alignment::Center)
@@ -350,7 +350,7 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
         ls.select(Some(sel.min(app.devices.len().saturating_sub(1))));
         let list = List::new(items)
             .block(Block::default().borders(Borders::ALL)
-        .border_type(BorderType::Rounded).title(" Seleziona device "))
+        .border_type(BorderType::Rounded).title(t!(" Seleziona device ")))
             .highlight_style(Style::default().fg(Color::Black).bg(accent(Side::Remote)).add_modifier(Modifier::BOLD))
             .highlight_symbol("▌");
         f.render_stateful_widget(list, main_area, &mut ls);
@@ -358,7 +358,7 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
     footer(
         f,
         chunks[2],
-        "↑↓/j-k muovi · Invio connetti · c aggiungi Wi-Fi (adb connect) · r aggiorna · q esci",
+        t!("↑↓/j-k muovi · Invio connetti · c aggiungi Wi-Fi (adb connect) · r aggiorna · q esci"),
     );
 }
 
@@ -386,7 +386,7 @@ fn draw_files(f: &mut Frame, app: &mut App) {
         .split(chunks[1]);
     app.pane_rects = [panes[0], panes[1]];
     let active_local = app.active == Side::Local;
-    draw_pane(f, panes[0], &mut app.local, active_local, "Locale", Side::Local);
+    draw_pane(f, panes[0], &mut app.local, active_local, t!("Locale"), Side::Local);
     match app.remote.as_mut() {
         Some(r) => draw_pane(f, panes[1], r, !active_local, "Device", Side::Remote),
         None => {
@@ -402,8 +402,8 @@ fn draw_files(f: &mut Frame, app: &mut App) {
         f,
         chunks[4],
         &[
-            &[("Tab", "pannello"), ("Spazio", "marca"), ("y", "pull"), ("p", "push"), ("T", "cartella intera"), ("s", "sync"), ("n", "nuova cart."), ("R", "rinomina"), ("d", "elimina")],
-            &[("g", "vai a"), ("/", "filtro"), ("o", "ordina"), (".", "nascosti"), ("a", "tutto"), ("*", "inverti"), ("S", "SMS"), ("x", "annulla"), ("X", "annulla coda"), ("?", "aiuto"), ("q", "esci")],
+            &[("Tab", t!("pannello")), ("Spazio", t!("marca")), ("y", t!("pull")), ("p", t!("push")), ("T", t!("cartella intera")), ("s", t!("sync")), ("n", t!("nuova cart.")), ("R", t!("rinomina")), ("d", t!("elimina"))],
+            &[("g", t!("vai a")), ("/", t!("filtro")), ("o", t!("ordina")), (".", t!("nascosti")), ("a", t!("tutto")), ("*", t!("inverti")), ("S", t!("SMS")), ("x", t!("annulla")), ("X", t!("annulla coda")), ("?", t!("aiuto")), ("q", t!("esci"))],
         ],
     );
 }
@@ -433,10 +433,13 @@ fn draw_pane(f: &mut Frame, area: Rect, p: &mut crate::app::Pane, active: bool, 
     }
     let bottom = Line::from(Span::styled(
         format!(
-            " {} voci · ord: {}{} ",
-            p.entries.iter().filter(|e| e.name != "..").count(),
-            p.sort.label(),
-            if p.show_hidden { " · nascosti" } else { "" }
+            "{}",
+            t!(
+                " {n} voci · ord: {sort}{hid} ",
+                n = p.entries.iter().filter(|e| e.name != "..").count(),
+                sort = p.sort.label(),
+                hid = if p.show_hidden { t!(" · nascosti") } else { "" }
+            )
         ),
         Style::default().fg(if active { acc } else { DIM }),
     ));
@@ -549,10 +552,10 @@ fn draw_transfers(f: &mut Frame, area: Rect, app: &App) {
     let snaps = app.queue.as_ref().map(|q| q.snapshot()).unwrap_or_default();
     let mut lines: Vec<Line> = Vec::new();
     let width = area.width as usize;
-    let mut title = " Trasferimenti ".to_string();
+    let mut title = t!(" Trasferimenti ").to_string();
     if snaps.is_empty() {
         lines.push(Line::from(Span::styled(
-            " nessun trasferimento (y pull · p push · s sync)",
+            t!(" nessun trasferimento (y pull · p push · s sync)"),
             Style::default().fg(DIM),
         )));
     } else {
@@ -576,7 +579,7 @@ fn draw_transfers(f: &mut Frame, area: Rect, app: &App) {
             .sum();
         let overall = (frac * 100.0 / n as f64) as u64;
         let finished = done + failed + cancelled;
-        title = format!(" Trasferimenti {finished}/{n} ");
+        title = t!(" Trasferimenti {finished}/{n} ", finished = finished, n = n);
         let mut sum = vec![
             Span::styled(" Σ ", Style::default().fg(SOFT).add_modifier(Modifier::BOLD)),
             Span::styled(bar(overall, 14), Style::default().fg(Color::Cyan)),
@@ -592,7 +595,7 @@ fn draw_transfers(f: &mut Frame, area: Rect, app: &App) {
             sum.push(Span::styled(format!("⊘ {cancelled}  "), Style::default().fg(Color::Yellow)));
         }
         if queued > 0 {
-            sum.push(Span::styled("(X annulla la coda)", Style::default().fg(DIM)));
+            sum.push(Span::styled(t!("(X annulla la coda)"), Style::default().fg(DIM)));
         }
         lines.push(Line::from(sum));
 
@@ -651,7 +654,7 @@ fn draw_transfers(f: &mut Frame, area: Rect, app: &App) {
         }
         if hidden > 0 {
             lines.push(Line::from(Span::styled(
-                format!("   … altri {hidden} (conclusi/in coda)"),
+                t!("   … altri {hidden} (conclusi/in coda)", hidden = hidden),
                 Style::default().fg(DIM),
             )));
         }
@@ -717,7 +720,7 @@ fn draw_dialog(f: &mut Frame, app: &App) {
         Screen::Confirm { title, message, .. } => {
             let area = centered_rect(60, 30, f.area());
             f.render_widget(Clear, area);
-            let txt = format!("{message}\n\n y = conferma   n = annulla");
+            let txt = format!("{message}\n\n{}", t!(" y = conferma   n = annulla"));
             f.render_widget(
                 Paragraph::new(txt)
                     .wrap(Wrap { trim: true })
@@ -729,7 +732,7 @@ fn draw_dialog(f: &mut Frame, app: &App) {
         Screen::Input { title, value, .. } => {
             let area = centered_rect(60, 20, f.area());
             f.render_widget(Clear, area);
-            let txt = format!("{value}▌\n\n Invio = conferma   Esc = annulla");
+            let txt = format!("{value}▌\n\n{}", t!(" Invio = conferma   Esc = annulla"));
             f.render_widget(
                 Paragraph::new(txt)
                     .wrap(Wrap { trim: false })

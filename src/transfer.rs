@@ -45,15 +45,27 @@ pub enum Status {
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            Status::Queued => "in coda",
-            Status::Running => "attivo",
-            Status::Done => "completato",
-            Status::Failed => "fallito",
-            Status::Cancelled => "annullato",
+            Status::Queued => t!("in coda"),
+            Status::Running => t!("attivo"),
+            Status::Done => t!("completato"),
+            Status::Failed => t!("fallito"),
+            Status::Cancelled => t!("annullato"),
         };
         write!(f, "{s}")
     }
 }
+
+/// Errore "operazione annullata": riconoscibile con `downcast_ref` indipendentemente dalla lingua.
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", t!("annullato"))
+    }
+}
+
+impl std::error::Error for Cancelled {}
 
 /// Specifica di un lavoro per la coda della TUI.
 pub struct JobSpec {
@@ -304,7 +316,7 @@ impl Queue {
 
 fn short_err(e: &anyhow::Error) -> String {
     let s = e.to_string();
-    let first = s.lines().next().unwrap_or("errore");
+    let first = s.lines().next().unwrap_or_else(|| t!("errore"));
     first.chars().take(120).collect()
 }
 
@@ -341,7 +353,7 @@ fn worker(adb: Adb, rx: Receiver<JobSpec>, inner: Arc<Inner>) {
                     st.bytes = st.total;
                 }
             }
-            Err(e) if e.to_string().contains("annullato") => st.status = Status::Cancelled,
+            Err(e) if e.downcast_ref::<Cancelled>().is_some() => st.status = Status::Cancelled,
             Err(e) => {
                 st.msg = short_err(e);
                 st.status = Status::Failed;
@@ -354,7 +366,7 @@ fn worker(adb: Adb, rx: Receiver<JobSpec>, inner: Arc<Inner>) {
 /// Esegue una specifica di job (usata dal worker della TUI).
 pub fn run_spec(adb: &Adb, spec: &JobSpec, flag: &AtomicBool, sink: &dyn Sink) -> Result<()> {
     if flag.load(Ordering::Relaxed) {
-        bail!("annullato");
+        bail!(Cancelled);
     }
     match (spec.dir, spec.kind) {
         (Direction::Pull, JobKind::File) => {
@@ -364,7 +376,7 @@ pub fn run_spec(adb: &Adb, spec: &JobSpec, flag: &AtomicBool, sink: &dyn Sink) -
         (Direction::Pull, JobKind::Sync) => sync_mirror(adb, &spec.src, &spec.dst, spec.delete, flag, sink).map(|_| ()),
         (Direction::Push, JobKind::File) => push_file(adb, &spec.src, &spec.dst, flag, sink),
         (Direction::Push, JobKind::Dir) => push_dir(adb, &spec.src, &spec.dst, flag, sink),
-        _ => bail!("combinazione non supportata"),
+        _ => bail!(t!("combinazione non supportata")),
     }
 }
 
@@ -416,7 +428,7 @@ fn pipe<R: Read, W: Write>(
     let mut buf = vec![0u8; 256 * 1024];
     loop {
         if flag.load(Ordering::Relaxed) {
-            bail!("annullato");
+            bail!(Cancelled);
         }
         let n = r.read(&mut buf)?;
         if n == 0 {
@@ -439,11 +451,11 @@ pub fn pull_file(
     let total = device_size_or_zero(adb, src);
     sink.set_total(total);
     if let Some(par) = Path::new(dst).parent() {
-        fs::create_dir_all(par).with_context(|| format!("creazione di {}", par.display()))?;
+        fs::create_dir_all(par).with_context(|| t!("creazione di {path}", path = par.display()))?;
     }
     if let Ok(md) = fs::metadata(dst) {
         if md.is_dir() {
-            bail!("la destinazione {} esiste già ed è una directory", dst);
+            bail!(t!("la destinazione {dst} esiste già ed è una directory", dst = dst));
         }
     }
     let part = format!("{dst}.part");
@@ -454,7 +466,7 @@ pub fn pull_file(
         .create(true)
         .write(true)
         .open(&part)
-        .with_context(|| format!("apertura di {part}"))?;
+        .with_context(|| t!("apertura di {path}", path = part))?;
     f.set_len(skip)?;
     f.seek(std::io::SeekFrom::Start(skip))?;
     let cmd = format!(
@@ -464,13 +476,13 @@ pub fn pull_file(
         skip / MB
     );
     let mut child = adb.exec_out(&cmd)?;
-    let mut out = child.stdout.take().context("stdout adb assente")?;
+    let mut out = child.stdout.take().context(t!("stdout adb assente"))?;
     let mut buf = vec![0u8; 256 * 1024];
     loop {
         if flag.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
-            bail!("annullato");
+            bail!(Cancelled);
         }
         let n = out.read(&mut buf)?;
         if n == 0 {
@@ -481,13 +493,13 @@ pub fn pull_file(
     }
     let st = child.wait()?;
     if flag.load(Ordering::Relaxed) {
-        bail!("annullato");
+        bail!(Cancelled);
     }
     if !st.success() {
-        bail!("trasferimento adb interrotto (exit status: {st}) — il file .part resta per il resume");
+        bail!(t!("trasferimento adb interrotto (exit status: {st}) — il file .part resta per il resume", st = st));
     }
     drop(f);
-    fs::rename(&part, dst).with_context(|| format!("rinomina {part} -> {dst}"))?;
+    fs::rename(&part, dst).with_context(|| t!("rinomina {from} -> {to}", from = part, to = dst))?;
     if verify {
         verify_md5(adb, src, dst)?;
     }
@@ -497,7 +509,7 @@ pub fn pull_file(
 /// MD5 di un file locale (nativo, senza dipendere da `md5sum`).
 fn local_md5(path: &str) -> Result<String> {
     use md5::{Digest, Md5};
-    let mut f = fs::File::open(path).with_context(|| format!("apertura di {path}"))?;
+    let mut f = fs::File::open(path).with_context(|| t!("apertura di {path}", path = path))?;
     let mut h = Md5::new();
     let mut buf = vec![0u8; 256 * 1024];
     loop {
@@ -516,14 +528,14 @@ fn verify_md5(adb: &Adb, src: &str, dst: &str) -> Result<()> {
     let rhash = rem.split_whitespace().next().unwrap_or("").to_lowercase();
     let lhash = local_md5(dst).unwrap_or_default();
     if rhash.is_empty() || lhash.is_empty() {
-        bail!("verifica MD5 non disponibile");
+        bail!(t!("verifica MD5 non disponibile"));
     }
     if rhash != lhash {
-        bail!(
-            "MD5 diverso dopo il trasferimento (device {}… vs locale {}…)",
-            &rhash[..8.min(rhash.len())],
-            &lhash[..8.min(lhash.len())]
-        );
+        bail!(t!(
+            "MD5 diverso dopo il trasferimento (device {dev}… vs locale {loc}…)",
+            dev = &rhash[..8.min(rhash.len())],
+            loc = &lhash[..8.min(lhash.len())]
+        ));
     }
     Ok(())
 }
@@ -532,7 +544,7 @@ fn verify_md5(adb: &Adb, src: &str, dst: &str) -> Result<()> {
 pub fn pull_dir(adb: &Adb, src: &str, dst: &str, flag: &AtomicBool, sink: &dyn Sink) -> Result<()> {
     let total = device_size_or_zero(adb, src);
     sink.set_total(total);
-    fs::create_dir_all(dst).with_context(|| format!("creazione di {dst}"))?;
+    fs::create_dir_all(dst).with_context(|| t!("creazione di {path}", path = dst))?;
     let parent = dev_parent(src);
     let name = dev_basename(src);
     let mut c1 = adb.exec_out(&format!(
@@ -549,9 +561,9 @@ pub fn pull_dir(adb: &Adb, src: &str, dst: &str, flag: &AtomicBool, sink: &dyn S
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .context("avvio tar locale")?;
-    let mut out1 = c1.stdout.take().context("stdout adb assente")?;
-    let mut in2 = c2.stdin.take().context("stdin tar locale")?;
+        .context(t!("avvio tar locale"))?;
+    let mut out1 = c1.stdout.take().context(t!("stdout adb assente"))?;
+    let mut in2 = c2.stdin.take().context(t!("stdin tar locale"))?;
     let res = pipe(&mut out1, &mut in2, flag, &mut |n| sink.add_bytes(n));
     if let Err(e) = res {
         let _ = c1.kill();
@@ -564,17 +576,17 @@ pub fn pull_dir(adb: &Adb, src: &str, dst: &str, flag: &AtomicBool, sink: &dyn S
     let s1 = c1.wait()?;
     let o2 = c2.wait_with_output()?;
     if flag.load(Ordering::Relaxed) {
-        bail!("annullato");
+        bail!(Cancelled);
     }
     if !s1.success() {
-        bail!("tar sul device fallito (exit {s1}) — possibili permessi negati (es. Android/data)");
+        bail!(t!("tar sul device fallito (exit {s1}) — possibili permessi negati (es. Android/data)", s1 = s1));
     }
     if !o2.status.success() {
         let e = String::from_utf8_lossy(&o2.stderr);
-        bail!(
-            "estrazione locale fallita: {}",
-            e.lines().last().unwrap_or("errore tar")
-        );
+        bail!(t!(
+            "estrazione locale fallita: {msg}",
+            msg = e.lines().last().unwrap_or("tar error")
+        ));
     }
     Ok(())
 }
@@ -584,7 +596,7 @@ fn push_via_tar(adb: &Adb, src: &Path, dst_dir: &str, flag: &AtomicBool, sink: &
     let parent = src.parent().unwrap_or(Path::new("."));
     let name = src
         .file_name()
-        .context("nome sorgente")?
+        .context(t!("nome sorgente"))?
         .to_string_lossy()
         .into_owned();
     let mut ctar = Command::new("tar")
@@ -597,10 +609,10 @@ fn push_via_tar(adb: &Adb, src: &Path, dst_dir: &str, flag: &AtomicBool, sink: &
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("avvio tar locale")?;
+        .context(t!("avvio tar locale"))?;
     let mut cadb = adb.exec_in(&format!("toybox tar -xf - -C {}", sh_quote(dst_dir)))?;
-    let mut out = ctar.stdout.take().context("stdout tar locale")?;
-    let mut ain = cadb.stdin.take().context("stdin adb assente")?;
+    let mut out = ctar.stdout.take().context(t!("stdout tar locale"))?;
+    let mut ain = cadb.stdin.take().context(t!("stdin adb assente"))?;
     let res = pipe(&mut out, &mut ain, flag, &mut |n| sink.add_bytes(n));
     if let Err(e) = res {
         let _ = ctar.kill();
@@ -613,26 +625,26 @@ fn push_via_tar(adb: &Adb, src: &Path, dst_dir: &str, flag: &AtomicBool, sink: &
     let s1 = ctar.wait()?;
     let o2 = cadb.wait_with_output()?;
     if flag.load(Ordering::Relaxed) {
-        bail!("annullato");
+        bail!(Cancelled);
     }
     if !s1.success() {
-        bail!("tar locale fallito");
+        bail!(t!("tar locale fallito"));
     }
     if !o2.status.success() {
         let e = String::from_utf8_lossy(&o2.stderr);
-        bail!(
-            "estrazione sul device fallita: {}",
-            e.lines().last().unwrap_or("errore")
-        );
+        bail!(t!(
+            "estrazione sul device fallita: {msg}",
+            msg = e.lines().last().unwrap_or("error")
+        ));
     }
     Ok(())
 }
 
 /// Push di un file: viene piazzato dentro `dst_dir` (creata se manca).
 pub fn push_file(adb: &Adb, src: &str, dst_dir: &str, flag: &AtomicBool, sink: &dyn Sink) -> Result<()> {
-    let md = fs::metadata(src).with_context(|| format!("sorgente {src} non accessibile"))?;
+    let md = fs::metadata(src).with_context(|| t!("sorgente {src} non accessibile", src = src))?;
     if !md.is_file() {
-        bail!("{src} non è un file");
+        bail!(t!("{src} non è un file", src = src));
     }
     sink.set_total(md.len());
     push_via_tar(adb, Path::new(src), dst_dir, flag, sink)
@@ -688,7 +700,7 @@ pub fn sync_mirror(
     flag: &AtomicBool,
     sink: &dyn Sink,
 ) -> Result<SyncStats> {
-    sink.msg("elenco file remoti…");
+    sink.msg(t!("elenco file remoti…"));
     let cmd = format!(
         "toybox find -H {} -type f -print0 | toybox xargs -0 -n 64 toybox stat -c '%s|%Y|%n'",
         sh_quote(remote_root)
@@ -713,7 +725,7 @@ pub fn sync_mirror(
         ));
     }
 
-    sink.msg("elenco file locali…");
+    sink.msg(t!("elenco file locali…"));
     let lr = Path::new(local_root);
     let mut local: HashMap<String, (u64, i64)> = HashMap::new();
     let mut local_dirs: Vec<String> = Vec::new();
@@ -731,13 +743,13 @@ pub fn sync_mirror(
     }
     let total: u64 = todo.iter().map(|t| t.1).sum();
     sink.set_total(total);
-    sink.msg("sincronizzazione…");
+    sink.msg(t!("sincronizzazione…"));
 
     let mut stats = SyncStats::default();
     let base = local_root.trim_end_matches('/').to_string();
     for (rel, _, _) in &todo {
         if flag.load(Ordering::Relaxed) {
-            bail!("annullato");
+            bail!(Cancelled);
         }
         sink.msg(rel);
         let dst = format!("{base}/{rel}");

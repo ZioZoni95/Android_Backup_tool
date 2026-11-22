@@ -47,6 +47,7 @@ abt help                             # all commands
 ```
 
 Options: `-s SERIAL` · `-o DIR` · `-y` · `--verify` · `--delete`. Backup folder: `ABT_BACKUP_DIR`.
+Language: automatic from your system (Italian or English); force it with `ABT_LANG=it` / `ABT_LANG=en`.
 Full guide (Italian): [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
 ## License
@@ -95,6 +96,7 @@ abt help                             # tutti i comandi
 ```
 
 Opzioni: `-s SERIAL` · `-o DIR` · `-y` · `--verify` · `--delete`. Cartella di backup: `ABT_BACKUP_DIR`.
+Lingua: automatica dal sistema (italiano o inglese); si forza con `ABT_LANG=it` / `ABT_LANG=en`.
 Guida completa: [docs/USAGE.it.md](docs/USAGE.it.md) · Design: [ARCHITECTURE.md](ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
 ### Licenza

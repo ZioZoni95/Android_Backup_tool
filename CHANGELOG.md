@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-22
+
+### Added
+- Multi-language UI: `src/i18n.rs` detects the system language at startup (`LC_ALL`/`LC_MESSAGES`/`LANGUAGE`/`LANG` on Unix, `GetUserDefaultLocaleName` on Windows via `windows-sys` feature `Win32_Globalization`); `ABT_LANG=it|en` overrides it. Italian locales get Italian, every other locale gets English.
+- `t!()` macro: the Italian source text is the lookup key, translations live in `src/i18n_en.rs`; named placeholders (`t!("... {n}", n = x)`); a missing key falls back to Italian. Unit tests check duplicate keys and placeholder consistency across languages.
+- `transfer::Cancelled`: typed cancellation error, detected with `downcast_ref` instead of matching the (now translated) message text.
+
 ### Changed
+- All TUI, CLI (`abt help`, messages, errors) and place-label strings go through `t!()`.
 - Release workflow: the GitHub release body is now the matching `CHANGELOG.md` section (English) plus download/requirements notes, instead of auto-generated commit links; `workflow_dispatch` with a `tag` input rebuilds and refreshes an existing release.
-- README: explicit requirements table (adb platform-tools, `tar`, USB debugging, Android 6+/toybox, 24-bit terminal, Rust only for source builds) in both languages.
+- README: explicit requirements table (adb platform-tools, `tar`, USB debugging, Android 6+/toybox, 24-bit terminal, Rust only for source builds) in both languages; documents `ABT_LANG`.
+- `Cargo.toml` version 0.3.0 → 0.4.0.
 
 ## [0.3.0] - 2026-11-22
 
@@ -55,7 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mouse support, right-click context menu with recursive size calculation, clickable breadcrumb, "Go to" menu (places, favorites, recents persisted in `places.txt`, mounted disks).
 - `abt disks`, `abt backup`, `abt apk`, `abt sms`, `abt calllog`, `abt appdata` (`su`/`run-as`).
 
-[Unreleased]: https://github.com/ZioZoni95/Android_Backup_tool/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ZioZoni95/Android_Backup_tool/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ZioZoni95/Android_Backup_tool/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ZioZoni95/Android_Backup_tool/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ZioZoni95/Android_Backup_tool/compare/1ec11bf...v0.2.0
 [0.1.0]: https://github.com/ZioZoni95/Android_Backup_tool/commit/1ec11bf

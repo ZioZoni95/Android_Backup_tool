@@ -150,20 +150,19 @@ pub fn locate() -> std::result::Result<String, String> {
 /// Titolo del prompt in cui l'utente indica dove si trova adb.
 pub fn path_prompt() -> String {
     if cfg!(windows) {
-        "Percorso di adb.exe o della cartella platform-tools (es. C:\\platform-tools) — Esc per saltare".into()
+        t!("Percorso di adb.exe o della cartella platform-tools (es. C:\\platform-tools) — Esc per saltare").into()
     } else {
-        "Percorso di adb o della cartella che lo contiene — Esc per saltare".into()
+        t!("Percorso di adb o della cartella che lo contiene — Esc per saltare").into()
     }
 }
 
 /// Messaggio con i suggerimenti per installare/indicare adb.
 pub fn missing_hint() -> String {
     if cfg!(windows) {
-        "adb non trovato. Scarica platform-tools da https://developer.android.com/tools/releases/platform-tools, \
-         estrai la cartella ovunque e indicane il percorso (oppure aggiungila al PATH / imposta ADB_BIN)."
+        t!("adb non trovato. Scarica platform-tools da https://developer.android.com/tools/releases/platform-tools, estrai la cartella ovunque e indicane il percorso (oppure aggiungila al PATH / imposta ADB_BIN).")
             .into()
     } else {
-        "adb non trovato: installalo (es. `apt install adb`) o imposta ADB_BIN=/percorso/adb.".into()
+        t!("adb non trovato: installalo (es. `apt install adb`) o imposta ADB_BIN=/percorso/adb.").into()
     }
 }
 
@@ -196,7 +195,7 @@ impl Adb {
             .arg("devices")
             .arg("-l")
             .output()
-            .with_context(|| format!("impossibile avviare '{} devices'", self.bin))?;
+            .with_context(|| t!("impossibile avviare '{bin} devices'", bin = self.bin))?;
         let text = String::from_utf8_lossy(&out.stdout);
         let mut v = Vec::new();
         for line in text.lines().skip(1) {
@@ -226,7 +225,7 @@ impl Adb {
             .arg("connect")
             .arg(addr)
             .output()
-            .with_context(|| format!("impossibile eseguire '{} connect'", self.bin))?;
+            .with_context(|| t!("impossibile eseguire '{bin} connect'", bin = self.bin))?;
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
@@ -237,7 +236,7 @@ impl Adb {
             .arg("tcpip")
             .arg(port.to_string())
             .output()
-            .with_context(|| format!("impossibile eseguire '{} tcpip'", self.bin))?;
+            .with_context(|| t!("impossibile eseguire '{bin} tcpip'", bin = self.bin))?;
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
@@ -248,7 +247,7 @@ impl Adb {
             .arg("shell")
             .arg(cmd)
             .output()
-            .with_context(|| "adb shell non riuscito".to_string())?;
+            .with_context(|| t!("adb shell non riuscito"))?;
         Ok(String::from_utf8_lossy(&out.stdout)
             .trim_end_matches(['\r', '\n'])
             .to_string())
@@ -263,7 +262,7 @@ impl Adb {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .context("adb exec-out non riuscito".to_string())
+            .context(t!("adb exec-out non riuscito"))
     }
 
     /// `exec-out` raccolto interamente in memoria.
@@ -271,7 +270,7 @@ impl Adb {
         let child = self.exec_out(cmd)?;
         let out = child
             .wait_with_output()
-            .context("attesa adb exec-out".to_string())?;
+            .context(t!("attesa adb exec-out"))?;
         Ok(out.stdout)
     }
 
@@ -284,7 +283,7 @@ impl Adb {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
-            .context("adb exec-in non riuscito (serve adb recente)".to_string())
+            .context(t!("adb exec-in non riuscito (serve adb recente)"))
     }
 
     /// Proprietà del device corrente.
