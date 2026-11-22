@@ -201,6 +201,9 @@ pub struct App {
     pub saved: crate::places::Saved,
     size_rx: Option<Receiver<(u64, String)>>,
     pub dl: Option<Arc<Mutex<crate::adb::DlState>>>,
+    /// Aggiornamento automatico dell'elenco device (schermata di selezione).
+    dev_rx: Option<Receiver<Result<Vec<crate::adb::Device>, String>>>,
+    dev_last: std::time::Instant,
     menu_gen: u64,
 }
 
@@ -320,6 +323,8 @@ impl App {
             saved: crate::places::Saved::load(),
             size_rx: None,
             dl: None,
+            dev_rx: None,
+            dev_last: std::time::Instant::now(),
             menu_gen: 0,
         }
     }
@@ -334,6 +339,7 @@ impl App {
     /// Drena i risultati asincroni (listing remoto, messaggi da thread).
     pub fn poll(&mut self) {
         self.poll_download();
+        self.poll_devices();
         if let Some(rx) = self.size_rx.as_ref() {
             while let Ok((g, txt)) = rx.try_recv() {
                 if g == self.menu_gen {
@@ -1212,6 +1218,18 @@ impl App {
         if !matches!(self.screen, Screen::Files) {
             return;
         }
+        // Menu contestuale: click destro, ma anche click centrale o Ctrl+click sinistro, per i terminali
+        // (es. terminale integrato di VS Code, Windows Terminal) che intercettano il click destro.
+        let ctrl = m.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
+        let ctx = matches!(m.kind, MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Down(MouseButton::Middle))
+            || (ctrl && m.kind == MouseEventKind::Down(MouseButton::Left));
+        if ctx {
+            if let Some((side, row)) = self.hit(m.column, m.row) {
+                self.select_at(side, row);
+                self.open_menu(side, (m.column, m.row));
+            }
+            return;
+        }
         match m.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 if let Some((side, _)) = self.hit(m.column, m.row) {
@@ -1235,11 +1253,6 @@ impl App {
                         self.enter();
                     }
                 }
-            }
-            MouseEventKind::Down(MouseButton::Right) => {
-                let Some((side, row)) = self.hit(m.column, m.row) else { return };
-                self.select_at(side, row);
-                self.open_menu(side, (m.column, m.row));
             }
             _ => {}
         }
@@ -1608,6 +1621,43 @@ impl App {
         }
     }
 
+    /// Nella schermata di selezione controlla ogni 2 s (in un thread) se è stato collegato/scollegato un device.
+    fn poll_devices(&mut self) {
+        const EVERY: Duration = Duration::from_secs(2);
+        if let Some(rx) = &self.dev_rx {
+            match rx.try_recv() {
+                Ok(res) => {
+                    self.dev_rx = None;
+                    self.dev_last = std::time::Instant::now();
+                    if let Ok(v) = res {
+                        if v != self.devices {
+                            let plugged = v.iter().find(|d| !self.devices.iter().any(|o| o.serial == d.serial)).map(|d| d.serial.clone());
+                            self.devices = v;
+                            let len = self.devices.len();
+                            if let Screen::Devices { sel } = &mut self.screen {
+                                *sel = (*sel).min(len.saturating_sub(1));
+                            }
+                            if let Some(serial) = plugged {
+                                self.log(t!("device collegato: {serial}", serial = serial));
+                            }
+                        }
+                    }
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => self.dev_rx = None,
+            }
+            return;
+        }
+        if matches!(self.screen, Screen::Devices { .. }) && self.dev_last.elapsed() >= EVERY {
+            let adb = self.adb.clone();
+            let (tx, rx) = channel();
+            self.dev_rx = Some(rx);
+            std::thread::spawn(move || {
+                let _ = tx.send(adb.devices().map_err(|e| e.to_string()));
+            });
+        }
+    }
+
     pub fn refresh_devices(&mut self) {
         match self.adb.devices() {
             Ok(v) => {
@@ -1843,5 +1893,90 @@ impl crate::transfer::Sink for Arc<Mutex<Sender<String>>> {
     fn add_bytes(&self, _n: u64) {}
     fn msg(&self, m: &str) {
         let _ = self.lock().unwrap().send(m.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+    fn click(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {
+        MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE }
+    }
+
+    #[test]
+    fn right_click_opens_context_menu() {
+        let tmp = std::env::temp_dir().join("abt-test-backup");
+        std::env::set_var("ABT_BACKUP_DIR", &tmp);
+        let mut app = App::new();
+        app.screen = Screen::Files;
+        app.pane_rects = [Rect { x: 0, y: 1, width: 60, height: 20 }, Rect { x: 60, y: 1, width: 60, height: 20 }];
+        app.on_mouse(click(MouseEventKind::Down(MouseButton::Right), 5, 5));
+        assert!(matches!(app.screen, Screen::Menu { .. }), "il click destro deve aprire il menu");
+
+        // alternative per i terminali che intercettano il click destro
+        for ev in [
+            click(MouseEventKind::Down(MouseButton::Middle), 5, 5),
+            MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 5, row: 5, modifiers: KeyModifiers::CONTROL },
+        ] {
+            app.screen = Screen::Files;
+            app.on_mouse(ev);
+            assert!(matches!(app.screen, Screen::Menu { .. }), "{ev:?} deve aprire il menu");
+        }
+
+        // il click sinistro semplice non apre il menu
+        app.screen = Screen::Files;
+        app.on_mouse(click(MouseEventKind::Down(MouseButton::Left), 5, 5));
+        assert!(matches!(app.screen, Screen::Files));
+    }
+
+    /// Un device collegato dopo l'avvio compare da solo nella schermata di selezione.
+    #[test]
+    fn device_plugged_after_start_appears_automatically() {
+        let dir = std::env::temp_dir().join("abt-test-fakeadb");
+        let _ = std::fs::create_dir_all(&dir);
+        let flag = dir.join("plugged");
+        let _ = std::fs::remove_file(&flag);
+        // adb finto: elenca un device solo se esiste il file "plugged"
+        let bin = if cfg!(windows) {
+            let p = dir.join("fakeadb.cmd");
+            let script = format!(
+                "@echo off\r\necho List of devices attached\r\nif exist \"{}\" echo ABC123 device model:Pixel\r\n",
+                flag.display()
+            );
+            std::fs::write(&p, script).unwrap();
+            p
+        } else {
+            let p = dir.join("fakeadb.sh");
+            let script = format!(
+                "#!/bin/sh\necho 'List of devices attached'\n[ -f '{}' ] && echo 'ABC123 device model:Pixel'\nexit 0\n",
+                flag.display()
+            );
+            std::fs::write(&p, script).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            p
+        };
+        std::env::set_var("ABT_BACKUP_DIR", dir.join("bk"));
+        std::env::set_var("ADB_BIN", &bin);
+        let mut app = App::new();
+        assert!(app.devices.is_empty());
+        app.screen = Screen::Devices { sel: 0 };
+        app.dev_last = std::time::Instant::now() - Duration::from_secs(10);
+        std::fs::write(&flag, "1").unwrap(); // "collego" il telefono dopo l'avvio
+        for _ in 0..200 {
+            app.poll();
+            if !app.devices.is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = std::fs::remove_file(&flag);
+        assert_eq!(app.devices.len(), 1);
+        assert_eq!(app.devices[0].serial, "ABC123");
     }
 }

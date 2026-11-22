@@ -557,13 +557,20 @@ fn tui() -> Result<()> {
     terminal.clear()?;
 
     let mut app = app::App::new();
+    // ABT_DEBUG_MOUSE=1: mostra nel log i click ricevuti (utile se il terminale intercetta il click destro).
+    let mouse_debug = std::env::var_os("ABT_DEBUG_MOUSE").is_some();
     let res = (|| -> Result<()> {
         loop {
             terminal.draw(|f| ui::draw(f, &mut app))?;
             if event::poll(Duration::from_millis(60))? {
                 match event::read()? {
                     Event::Key(k) => app.on_key(k),
-                    Event::Mouse(m) => app.on_mouse(m),
+                    Event::Mouse(m) => {
+                        if mouse_debug && matches!(m.kind, event::MouseEventKind::Down(_) | event::MouseEventKind::Up(_)) {
+                            app.log(format!("mouse: {:?} {:?} ({}, {})", m.kind, m.modifiers, m.column, m.row));
+                        }
+                        app.on_mouse(m)
+                    }
                     _ => {}
                 }
             }

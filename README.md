@@ -33,7 +33,8 @@ on the device screen press `d` to download, `a` to set the path. From a script: 
    (Linux, macOS, Windows) and unzip it, or build it: `cargo build --release` (binary in `target/release/abt`).
 2. Run `abt`. If adb is not installed it shows OS-specific instructions and offers to **download it
    automatically** (press `y`) — nothing else to install. Or install adb yourself (see above).
-3. Plug in the phone with USB debugging on and pick it from the list.
+3. Plug in the phone with USB debugging on and pick it from the list
+   (you can plug it in after starting `abt`: the list refreshes by itself).
    For Wi-Fi: connect via USB once, then `abt wifi`.
 
 > **macOS (experimental):** builds for Apple Silicon (`arm64`) and Intel (`x86_64`) are provided but have not been tested on real
@@ -87,7 +88,8 @@ nella schermata device premi `d` per scaricarlo, `a` per indicare il percorso. D
    (Linux, macOS, Windows) ed estrailo, oppure compila: `cargo build --release` (binario in `target/release/abt`).
 2. Avvia `abt`. Se adb non è installato mostra le istruzioni per il tuo sistema e ti propone di
    **scaricarlo automaticamente** (premi `y`) — non serve installare altro. Oppure installa adb a mano (vedi sopra).
-3. Collega il telefono con il debug USB attivo e sceglilo dalla lista.
+3. Collega il telefono con il debug USB attivo e sceglilo dalla lista
+   (puoi collegarlo anche dopo aver avviato `abt`: l'elenco si aggiorna da solo).
    Per il Wi-Fi: collega prima via USB, poi `abt wifi`.
 
 > **macOS (sperimentale):** sono disponibili build per Apple Silicon (`arm64`) e Intel (`x86_64`), non ancora provate su hardware
