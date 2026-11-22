@@ -114,18 +114,58 @@ pub const LOGO: [&str; 11] = [
     r"      ▀▀  ▀▀      ",
 ];
 
+/// Cartella home dell'utente (`HOME` su Unix, `USERPROFILE` su Windows), con `/` come separatore.
+pub fn home_dir() -> Option<String> {
+    let v = std::env::var("HOME")
+        .ok()
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var("USERPROFILE").ok().filter(|h| !h.is_empty()))?;
+    Some(norm_local(&v))
+}
+
+/// Normalizza un percorso locale: su Windows usa sempre `/` e porta `C:` a `C:/`.
+/// Su Unix il percorso resta invariato (`\` è un carattere valido nei nomi).
+pub fn norm_local(p: &str) -> String {
+    if cfg!(windows) {
+        let mut s = p.replace('\\', "/");
+        let b = s.as_bytes();
+        if b.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+            s.push('/');
+        }
+        s
+    } else {
+        p.to_string()
+    }
+}
+
+/// Directory padre locale; alla radice (`/` o `C:/`) restituisce il percorso stesso.
+pub fn local_parent(p: &str) -> String {
+    std::path::Path::new(p)
+        .parent()
+        .map(|x| norm_local(&x.to_string_lossy()))
+        .filter(|x| !x.is_empty())
+        .unwrap_or_else(|| p.to_string())
+}
+
+/// true se `p` è la radice di un filesystem locale (`/` o `C:/`).
+pub fn is_local_root(p: &str) -> bool {
+    let t = p.trim();
+    if t == "/" {
+        return true;
+    }
+    let b = t.as_bytes();
+    cfg!(windows) && b.len() >= 2 && b.len() <= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b.len() == 2 || b[2] == b'/')
+}
+
 /// Cartella locale di default per i backup: `$ABT_BACKUP_DIR` oppure
 /// `~/Android_Backup/Backup`. La crea se manca.
 pub fn default_backup_dir() -> Result<String, String> {
     let d = std::env::var("ABT_BACKUP_DIR")
         .ok()
         .filter(|v| !v.is_empty())
-        .or_else(|| {
-            std::env::var("HOME")
-                .ok()
-                .map(|h| format!("{}/Android_Backup/Backup", h.trim_end_matches('/')))
-        })
-        .ok_or_else(|| "HOME non impostata".to_string())?;
+        .map(|v| norm_local(&v))
+        .or_else(|| home_dir().map(|h| format!("{}/Android_Backup/Backup", h.trim_end_matches('/'))))
+        .ok_or_else(|| "HOME/USERPROFILE non impostata".to_string())?;
     std::fs::create_dir_all(&d).map_err(|e| format!("{d}: {e}"))?;
     Ok(d)
 }

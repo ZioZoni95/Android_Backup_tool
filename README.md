@@ -21,12 +21,23 @@ Design e limiti: vedi [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Requisiti
 
-- Linux/macOS, Rust 1.80+
-- Windows: 🚧 work in progress (branch `feat/windows-support`, non ancora testato su Windows reale)
+- Linux, macOS o Windows 10+ (per compilare: Rust 1.80+; sulle [Release](https://github.com/ZioZoni95/Android_Backup_tool/releases) trovi i binari pronti)
 - `adb` nel PATH (Debian/Ubuntu: `sudo apt install adb`; Fedora: `sudo dnf install android-tools`)
   oppure `ADB_BIN=/percorso/adb`
 - Telefono con **debug USB** attivo (accetta la chiave RSA al primo collegamento).
   Per il Wi-Fi: prima USB, poi `abt wifi`.
+
+### Windows
+
+> Testato su Windows 11. Segnalazioni e issue sono benvenute.
+
+- Installa [platform-tools](https://developer.android.com/tools/releases/platform-tools) e
+  aggiungi la cartella al PATH (oppure `set ADB_BIN=C:\\percorso\\adb.exe`).
+- Serve `tar` (incluso in Windows 10 1803+ come `C:\\Windows\\System32\\tar.exe`).
+- Consigliato **Windows Terminal** (la console legacy può mostrare male icone e box-drawing).
+- Config in `%APPDATA%\\abt\\places.txt`; backup di default in `%USERPROFILE%\\Android_Backup\\Backup`.
+- I percorsi locali si scrivono con `/` o `\\` (`D:\\Foto`); le unità sono nel menu «Vai a».
+- File del device con nomi non validi su Windows (`:`, `?`, `*`, …) non si possono estrarre.
 
 ## Build
 

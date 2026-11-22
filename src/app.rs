@@ -97,6 +97,8 @@ pub enum InputAction {
     Filter(Side),
     GotoPath(Side),
     Connect,
+    /// Percorso di adb (file o cartella che lo contiene).
+    AdbPath,
     /// Trasferimento dal pannello indicato (destinazione editabile).
     Transfer(Side, bool),
 }
@@ -258,7 +260,7 @@ fn default_backup_dir(log: &mut VecDeque<String>) -> String {
         Err(e) => {
             log.push_back(format!("⚠ cartella backup: {e}"));
             std::env::current_dir()
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(|p| crate::util::norm_local(&p.to_string_lossy()))
                 .unwrap_or_else(|_| "/".into())
         }
     }
@@ -266,15 +268,26 @@ fn default_backup_dir(log: &mut VecDeque<String>) -> String {
 
 impl App {
     pub fn new() -> Self {
-        let bin = std::env::var("ADB_BIN").unwrap_or_else(|_| "adb".into());
+        let mut log = VecDeque::new();
+        let mut screen = Screen::Devices { sel: 0 };
+        let bin = match crate::adb::locate() {
+            Ok(b) => b,
+            Err(b) => {
+                log.push_back(format!("⚠ {}", crate::adb::missing_hint()));
+                screen = Screen::Input {
+                    title: crate::adb::path_prompt(),
+                    value: String::new(),
+                    action: InputAction::AdbPath,
+                };
+                b
+            }
+        };
         let adb = Adb::new(bin);
         let mut devices = Vec::new();
-        let mut log = VecDeque::new();
-        match adb.devices() {
-            Ok(v) => devices = v,
-            Err(e) => {
-                log.push_back(format!("⚠ adb: {e}"));
-                log.push_back("⚠ installa adb (es. `apt install adb`) o imposta ADB_BIN".into());
+        if !matches!(screen, Screen::Input { .. }) {
+            match adb.devices() {
+                Ok(v) => devices = v,
+                Err(e) => log.push_back(format!("⚠ adb: {e}")),
             }
         }
         let cwd = default_backup_dir(&mut log);
@@ -282,7 +295,7 @@ impl App {
         Self {
             adb,
             devices,
-            screen: Screen::Devices { sel: 0 },
+            screen,
             local,
             remote: None,
             queue: None,
@@ -475,10 +488,7 @@ impl App {
             Side::Remote => self.remote.as_ref().map(|p| p.cwd.clone()).unwrap_or_default(),
         };
         let parent = match side {
-            Side::Local => Path::new(&cwd)
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "/".into()),
+            Side::Local => crate::util::local_parent(&cwd),
             Side::Remote => dev_parent(&cwd),
         };
         let changed = match side {
@@ -907,6 +917,15 @@ impl App {
         };
     }
 
+    /// Schermata device: `a` -> input percorso di adb.
+    pub fn adb_path_request(&mut self) {
+        self.screen = Screen::Input {
+            title: crate::adb::path_prompt(),
+            value: String::new(),
+            action: InputAction::AdbPath,
+        };
+    }
+
     pub fn submit_input(&mut self, value: String) {
         let action = match &self.screen {
             Screen::Input { action, .. } => action.clone(),
@@ -915,8 +934,25 @@ impl App {
         self.screen = Screen::Files;
         let v = value.trim().to_string();
         match action {
+            InputAction::AdbPath => {
+                let bin = crate::adb::resolve_user_path(&v);
+                if v.is_empty() || !crate::adb::works(&bin) {
+                    self.log(format!("⚠ adb non valido: {bin}"));
+                    self.screen = Screen::Input {
+                        title: format!("adb non trovato in «{v}» — riprova (Esc per annullare)"),
+                        value: v,
+                        action: InputAction::AdbPath,
+                    };
+                    return;
+                }
+                crate::adb::save_path(&bin);
+                self.log(format!("adb: {bin} (salvato)"));
+                self.adb.bin = bin;
+                self.refresh_devices();
+                self.screen = Screen::Devices { sel: 0 };
+            }
             InputAction::Mkdir(side) => {
-                if v.is_empty() || v.contains('/') || v.split('/').any(|c| c == "..") {
+                if v.is_empty() || v.contains('/') || (cfg!(windows) && v.contains('\\')) || v.split('/').any(|c| c == "..") {
                     self.log(format!("⚠ nome non valido: {v:?}"));
                     return;
                 }
@@ -956,11 +992,12 @@ impl App {
             InputAction::GotoPath(side) => {
                 let mut path = v;
                 if side == Side::Local {
-                    if path == "~" || path.starts_with("~/") {
-                        if let Ok(h) = std::env::var("HOME") {
+                    if path == "~" || path.starts_with("~/") || path.starts_with("~\\") {
+                        if let Some(h) = crate::util::home_dir() {
                             path = format!("{h}{}", &path[1..]);
                         }
                     }
+                    path = crate::util::norm_local(&path);
                 } else if !path.starts_with('/') {
                     path = format!("/{path}");
                 }
@@ -973,7 +1010,7 @@ impl App {
                 }
             }
             InputAction::Rename(side, old) => {
-                if v.is_empty() || v.contains('/') || v == "." || v == ".." {
+                if v.is_empty() || v.contains('/') || (cfg!(windows) && v.contains('\\')) || v == "." || v == ".." {
                     self.log(format!("⚠ nome non valido: {v:?}"));
                     return;
                 }
@@ -1544,6 +1581,7 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => self.dev_move(1),
                 KeyCode::Enter => self.connect(sel),
                 KeyCode::Char('c') => self.connect_request(),
+                KeyCode::Char('a') => self.adb_path_request(),
                 KeyCode::Char('r') => self.refresh_devices(),
                 KeyCode::Char('q') => self.quit = true,
                 _ => {}
@@ -1675,8 +1713,14 @@ impl App {
                 KeyCode::Char('n') | KeyCode::Esc => self.confirm(false),
                 _ => {}
             },
-            Route::Input(_action, value) => match key.code {
-                KeyCode::Esc => self.screen = Screen::Files,
+            Route::Input(action, value) => match key.code {
+                KeyCode::Esc => {
+                    self.screen = if matches!(action, InputAction::AdbPath | InputAction::Connect) {
+                        Screen::Devices { sel: 0 }
+                    } else {
+                        Screen::Files
+                    }
+                }
                 KeyCode::Enter => self.submit_input(value),
                 KeyCode::Backspace => {
                     let mut v = value;

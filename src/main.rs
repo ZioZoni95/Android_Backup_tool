@@ -37,7 +37,13 @@ fn main() {
 }
 
 fn adb_bin() -> String {
-    std::env::var("ADB_BIN").unwrap_or_else(|_| "adb".into())
+    match adb::locate() {
+        Ok(b) => b,
+        Err(b) => {
+            eprintln!("{}", adb::missing_hint());
+            b
+        }
+    }
 }
 
 /// Opzioni globali della CLI.
