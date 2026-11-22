@@ -1523,6 +1523,16 @@ impl App {
         }
     }
 
+    /// `X`: annulla tutti i trasferimenti ancora in coda (quello attivo prosegue).
+    pub fn cancel_queued(&mut self) {
+        let n = self.queue.as_ref().map(|q| q.cancel_queued()).unwrap_or(0);
+        if n > 0 {
+            self.log(format!("annullati {n} trasferimenti in coda"));
+        } else {
+            self.log("nessun trasferimento in coda");
+        }
+    }
+
     fn dev_move(&mut self, d: i64) {
         if let Screen::Devices { sel } = &mut self.screen {
             let len = self.devices.len() as i64;
@@ -1658,6 +1668,7 @@ impl App {
                 }
                 KeyCode::Char('S') => self.export_sms_calllog(),
                 KeyCode::Char('x') => self.cancel_running(),
+                KeyCode::Char('X') => self.cancel_queued(),
                 _ => {}
             },
             Route::Help => self.screen = Screen::Files,

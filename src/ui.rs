@@ -1,7 +1,7 @@
 //! Rendering TUI (ratatui).
 
 use crate::app::{App, Side, Screen};
-use crate::transfer::{Direction, JobKind, Status};
+use crate::transfer::{Direction, JobKind, JobSnap, Status};
 use crate::util::{fmt_date, humanize};
 use ratatui::layout::{Constraint, Direction as LDirection, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -364,13 +364,17 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
 
 fn draw_files(f: &mut Frame, app: &mut App) {
     let area = f.area();
+    // Il pannello trasferimenti cresce con il numero di job (max ~40% dello schermo).
+    let n_jobs = app.queue.as_ref().map(|q| q.snapshot().len()).unwrap_or(0);
+    let want = if n_jobs == 0 { 1 } else { 1 + n_jobs.min(12) };
+    let tr_h = ((want + 2) as u16).clamp(5, (area.height * 2 / 5).max(5));
     let chunks = Layout::default()
         .direction(LDirection::Vertical)
         .constraints([
             Constraint::Length(1),
             Constraint::Min(4),
-            Constraint::Length(5),
-            Constraint::Length(4),
+            Constraint::Length(tr_h),
+            Constraint::Length(6),
             Constraint::Length(2),
         ])
         .split(area);
@@ -399,7 +403,7 @@ fn draw_files(f: &mut Frame, app: &mut App) {
         chunks[4],
         &[
             &[("Tab", "pannello"), ("Spazio", "marca"), ("y", "pull"), ("p", "push"), ("T", "cartella intera"), ("s", "sync"), ("n", "nuova cart."), ("R", "rinomina"), ("d", "elimina")],
-            &[("g", "vai a"), ("/", "filtro"), ("o", "ordina"), (".", "nascosti"), ("a", "tutto"), ("*", "inverti"), ("S", "SMS"), ("x", "annulla"), ("?", "aiuto"), ("q", "esci")],
+            &[("g", "vai a"), ("/", "filtro"), ("o", "ordina"), (".", "nascosti"), ("a", "tutto"), ("*", "inverti"), ("S", "SMS"), ("x", "annulla"), ("X", "annulla coda"), ("?", "aiuto"), ("q", "esci")],
         ],
     );
 }
@@ -518,22 +522,99 @@ fn draw_pane(f: &mut Frame, area: Rect, p: &mut crate::app::Pane, active: bool, 
     }
 }
 
+/// Durata in `m:ss` / `h:mm:ss`.
+fn fmt_dur(secs: f64) -> String {
+    let t = secs.max(0.0) as u64;
+    if t >= 3600 {
+        format!("{}:{:02}:{:02}", t / 3600, (t / 60) % 60, t % 60)
+    } else {
+        format!("{}:{:02}", t / 60, t % 60)
+    }
+}
+
+/// Velocità media e tempo residuo stimato di un job in esecuzione.
+fn speed_eta(s: &JobSnap) -> Option<String> {
+    if s.elapsed < 1.0 || s.bytes == 0 {
+        return None;
+    }
+    let sp = s.bytes as f64 / s.elapsed;
+    let mut out = format!("{}/s", humanize(sp as u64));
+    if s.total > s.bytes && sp > 0.0 {
+        out.push_str(&format!(" · ETA {}", fmt_dur((s.total - s.bytes) as f64 / sp)));
+    }
+    Some(out)
+}
+
 fn draw_transfers(f: &mut Frame, area: Rect, app: &App) {
     let snaps = app.queue.as_ref().map(|q| q.snapshot()).unwrap_or_default();
     let mut lines: Vec<Line> = Vec::new();
+    let width = area.width as usize;
+    let mut title = " Trasferimenti ".to_string();
     if snaps.is_empty() {
         lines.push(Line::from(Span::styled(
             " nessun trasferimento (y pull · p push · s sync)",
             Style::default().fg(DIM),
         )));
     } else {
-        for s in snaps.iter().rev().take(4) {
+        let count = |st: Status| snaps.iter().filter(|s| s.status == st).count();
+        let (done, running, queued, failed, cancelled) = (
+            count(Status::Done),
+            count(Status::Running),
+            count(Status::Queued),
+            count(Status::Failed),
+            count(Status::Cancelled),
+        );
+        let n = snaps.len();
+        // Avanzamento complessivo: job conclusi + frazione di quelli attivi.
+        let frac: f64 = snaps
+            .iter()
+            .map(|s| match s.status {
+                Status::Running if s.total > 0 => s.bytes as f64 / s.total as f64,
+                Status::Done | Status::Failed | Status::Cancelled => 1.0,
+                _ => 0.0,
+            })
+            .sum();
+        let overall = (frac * 100.0 / n as f64) as u64;
+        let finished = done + failed + cancelled;
+        title = format!(" Trasferimenti {finished}/{n} ");
+        let mut sum = vec![
+            Span::styled(" Σ ", Style::default().fg(SOFT).add_modifier(Modifier::BOLD)),
+            Span::styled(bar(overall, 14), Style::default().fg(Color::Cyan)),
+            Span::styled(format!(" {overall:>3}%  "), Style::default().fg(SOFT)),
+            Span::styled(format!("✔ {done}  "), Style::default().fg(Color::Green)),
+            Span::styled(format!("▶ {running}  "), Style::default().fg(Color::Cyan)),
+            Span::styled(format!("… {queued}  "), Style::default().fg(DIM)),
+        ];
+        if failed > 0 {
+            sum.push(Span::styled(format!("✖ {failed}  "), Style::default().fg(Color::Red)));
+        }
+        if cancelled > 0 {
+            sum.push(Span::styled(format!("⊘ {cancelled}  "), Style::default().fg(Color::Yellow)));
+        }
+        if queued > 0 {
+            sum.push(Span::styled("(X annulla la coda)", Style::default().fg(DIM)));
+        }
+        lines.push(Line::from(sum));
+
+        // Righe visibili: priorità a attivo, falliti, in coda; poi gli ultimi conclusi.
+        let cap = (area.height as usize).saturating_sub(3);
+        let pri = |s: &JobSnap| match s.status {
+            Status::Running => 0,
+            Status::Failed => 1,
+            Status::Queued => 2,
+            _ => 3,
+        };
+        let mut order: Vec<&JobSnap> = snaps.iter().collect();
+        order.sort_by_key(|s| (pri(s), if pri(s) == 3 { u64::MAX - s.id } else { s.id }));
+        let take = if order.len() > cap { cap.saturating_sub(1) } else { cap };
+        let mut pick: Vec<&JobSnap> = order.into_iter().take(take).collect();
+        pick.sort_by_key(|s| s.id);
+        let hidden = n - pick.len();
+
+        for s in pick {
             let (g, c) = status_glyph(s.status);
-            let pct = if s.total > 0 {
-                format!(" {:>3}%", s.bytes * 100 / s.total.max(1))
-            } else {
-                String::new()
-            };
+            let pcv = if s.total > 0 { s.bytes * 100 / s.total.max(1) } else { 0 };
+            let pct = if s.total > 0 { format!(" {pcv:>3}%") } else { "     ".into() };
             let bytes = if s.total > 0 {
                 format!("{}/{}", humanize(s.bytes), humanize(s.total))
             } else if s.bytes > 0 {
@@ -541,43 +622,47 @@ fn draw_transfers(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 String::new()
             };
-            let dir_arrow = match s.dir {
-                Direction::Pull => "↓",
-                Direction::Push => "↑",
-            };
-            let msg = if s.status == Status::Failed {
-                format!(" — {}", s.msg)
-            } else if !s.msg.is_empty() && s.status == Status::Running {
-                format!(" — {}", trunc(&s.msg, 40))
-            } else {
-                String::new()
-            };
-            let pcv = if s.total > 0 { s.bytes * 100 / s.total.max(1) } else { 0 };
+            let dir_arrow = if s.dir == Direction::Pull { "↓" } else { "↑" };
+            let dir_col = if s.dir == Direction::Pull { accent(Side::Local) } else { accent(Side::Remote) };
             let gauge = if matches!(s.status, Status::Running | Status::Done) && s.total > 0 {
                 bar(pcv, 14)
             } else {
                 " ".repeat(14)
             };
-            let dir_col = match s.dir {
-                Direction::Pull => accent(Side::Local),
-                Direction::Push => accent(Side::Remote),
+            let extra = match s.status {
+                Status::Failed => format!(" — {}", s.msg),
+                Status::Running => match speed_eta(s) {
+                    Some(t) => format!(" — {t}"),
+                    None if !s.msg.is_empty() => format!(" — {}", s.msg),
+                    None => String::new(),
+                },
+                Status::Done if s.elapsed >= 1.0 => format!(" — {}", fmt_dur(s.elapsed)),
+                _ => String::new(),
             };
+            // prefisso fisso: " g " + "↓ " + gauge + bytes(12) + pct(5) + spazi
+            let room = width.saturating_sub(3 + 2 + 14 + 13 + 5 + 3);
             lines.push(Line::from(vec![
                 Span::styled(format!(" {g} "), Style::default().fg(c)),
                 Span::styled(format!("{dir_arrow} "), Style::default().fg(dir_col).add_modifier(Modifier::BOLD)),
                 Span::styled(gauge, Style::default().fg(c)),
                 Span::styled(format!(" {:>12}{} ", bytes, pct), Style::default().fg(SOFT)),
-                Span::styled(format!("{}{}", s.label, msg), Style::default().fg(c)),
+                Span::styled(trunc(&format!("{}{}", s.label, extra), room), Style::default().fg(c)),
             ]));
+        }
+        if hidden > 0 {
+            lines.push(Line::from(Span::styled(
+                format!("   … altri {hidden} (conclusi/in coda)"),
+                Style::default().fg(DIM),
+            )));
         }
     }
     f.render_widget(
         Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+                .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(DIM))
-                .title(Span::styled(" Trasferimenti ", Style::default().fg(SOFT).add_modifier(Modifier::BOLD))),
+                .title(Span::styled(title, Style::default().fg(SOFT).add_modifier(Modifier::BOLD))),
         ),
         area,
     );
@@ -588,7 +673,7 @@ fn draw_log(f: &mut Frame, area: Rect, app: &App) {
         .log
         .iter()
         .rev()
-        .take(3)
+        .take((area.height as usize).saturating_sub(2).max(1))
         .map(|s| {
             let style = if s.contains('⚠') {
                 Style::default().fg(Color::Red)

@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Instant;
 
 pub const MB: u64 = 1 << 20;
 
@@ -94,6 +95,8 @@ pub struct JobState {
     pub bytes: u64,
     pub total: u64,
     pub msg: String,
+    pub started: Option<Instant>,
+    pub ended: Option<Instant>,
 }
 
 /// Vista di un job condivisa fra worker e UI.
@@ -162,6 +165,8 @@ pub struct JobSnap {
     pub bytes: u64,
     pub total: u64,
     pub msg: String,
+    /// Secondi trascorsi dall'avvio (congelati a fine job); 0 se non ancora partito.
+    pub elapsed: f64,
 }
 
 struct Inner {
@@ -209,6 +214,8 @@ impl Queue {
                 bytes: 0,
                 total: 0,
                 msg: String::new(),
+                started: None,
+                ended: None,
             }),
         });
         self.inner
@@ -238,6 +245,10 @@ impl Queue {
                     bytes: st.bytes,
                     total: st.total,
                     msg: st.msg.clone(),
+                    elapsed: st
+                        .started
+                        .map(|s| st.ended.unwrap_or_else(Instant::now).duration_since(s).as_secs_f64())
+                        .unwrap_or(0.0),
                 }
             })
             .collect()
@@ -261,6 +272,22 @@ impl Queue {
                 }
             }
         }
+    }
+
+    /// Annulla tutti i job ancora in coda (non quello in esecuzione); restituisce quanti.
+    pub fn cancel_queued(&self) -> usize {
+        let mut n = 0;
+        for v in self.inner.jobs.lock().unwrap().iter() {
+            let mut st = v.st.lock().unwrap();
+            if st.status == Status::Queued {
+                st.status = Status::Cancelled;
+                n += 1;
+                if let Some(f) = self.inner.flags.lock().unwrap().get(&v.id) {
+                    f.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        n
     }
 
     /// Id del job attualmente in esecuzione, se presente.
@@ -290,7 +317,11 @@ fn worker(adb: Adb, rx: Receiver<JobSpec>, inner: Arc<Inner>) {
         let Some(view) = view else { continue };
         {
             let mut st = view.st.lock().unwrap();
+            if st.status == Status::Cancelled {
+                continue;
+            }
             st.status = Status::Running;
+            st.started = Some(Instant::now());
         }
         let flag = inner
             .flags
@@ -302,6 +333,7 @@ fn worker(adb: Adb, rx: Receiver<JobSpec>, inner: Arc<Inner>) {
         let sink: Arc<dyn Sink> = Arc::new(JobSink(view.clone()));
         let res = run_spec(&adb, &spec, &flag, sink.as_ref());
         let mut st = view.st.lock().unwrap();
+        st.ended = Some(Instant::now());
         match &res {
             Ok(()) => {
                 st.status = Status::Done;
