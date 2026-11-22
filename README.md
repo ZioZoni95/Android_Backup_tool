@@ -21,16 +21,15 @@ Design e limiti: vedi [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Requisiti
 
-- Linux/macOS, Rust 1.80+ (Windows 10+: 🚧 work in progress, vedi sotto)
+- Linux, macOS o Windows 10+ (per compilare: Rust 1.80+; sulle [Release](https://github.com/ZioZoni95/Android_Backup_tool/releases) trovi i binari pronti)
 - `adb` nel PATH (Debian/Ubuntu: `sudo apt install adb`; Fedora: `sudo dnf install android-tools`)
   oppure `ADB_BIN=/percorso/adb`
 - Telefono con **debug USB** attivo (accetta la chiave RSA al primo collegamento).
   Per il Wi-Fi: prima USB, poi `abt wifi`.
 
-### Windows (🚧 work in progress)
+### Windows
 
-> Il supporto a Windows è in sviluppo e non è ancora stato testato su una macchina Windows reale.
-> Segnalazioni e issue sono benvenute.
+> Testato su Windows 11. Segnalazioni e issue sono benvenute.
 
 - Installa [platform-tools](https://developer.android.com/tools/releases/platform-tools) e
   aggiungi la cartella al PATH (oppure `set ADB_BIN=C:\\percorso\\adb.exe`).

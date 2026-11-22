@@ -1,6 +1,6 @@
 [package]
 name = "android-backup-tool"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Backup e file manager TUI per Android via adb (alternativa veloce a MTP)"
 

@@ -221,13 +221,18 @@ pub struct Saved {
     pub recents: Vec<(Side, String)>,
 }
 
-fn cfg_path() -> Option<String> {
+/// Cartella di configurazione di abt (`.../abt`).
+pub fn cfg_dir() -> Option<String> {
     let base = std::env::var("XDG_CONFIG_HOME")
         .ok()
         .filter(|v| !v.is_empty())
         .or_else(|| std::env::var("APPDATA").ok().filter(|v| !v.is_empty()).map(|v| v.replace('\\', "/")))
         .or_else(|| home().map(|h| format!("{h}/.config")))?;
-    Some(format!("{base}/abt/places.txt"))
+    Some(format!("{base}/abt"))
+}
+
+fn cfg_path() -> Option<String> {
+    Some(format!("{}/places.txt", cfg_dir()?))
 }
 
 fn side_ch(s: Side) -> &'static str {

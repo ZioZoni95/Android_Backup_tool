@@ -20,6 +20,153 @@ pub struct DeviceInfo {
     pub abi: String,
 }
 
+/// True se `bin` è un adb eseguibile (`adb version` termina con successo).
+pub fn works(bin: &str) -> bool {
+    Command::new(bin)
+        .arg("version")
+        .stdin(Stdio::null())
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn saved_file() -> Option<String> {
+    Some(format!("{}/adb_path.txt", crate::places::cfg_dir()?))
+}
+
+/// Percorso di adb salvato in precedenza dall'utente.
+pub fn saved_path() -> Option<String> {
+    let t = std::fs::read_to_string(saved_file()?).ok()?;
+    let t = t.trim();
+    (!t.is_empty()).then(|| t.to_string())
+}
+
+/// Salva il percorso di adb scelto dall'utente.
+pub fn save_path(bin: &str) {
+    let Some(f) = saved_file() else { return };
+    if let Some(d) = std::path::Path::new(&f).parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(f, bin);
+}
+
+/// Se `p` è un file adb, o una cartella che lo contiene, restituisce il percorso dell'eseguibile.
+pub fn resolve_user_path(p: &str) -> String {
+    let p = p.trim().trim_matches('"');
+    let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
+    let path = std::path::Path::new(p);
+    if path.is_dir() {
+        path.join(exe).to_string_lossy().into_owned()
+    } else {
+        p.to_string()
+    }
+}
+
+/// Posizioni tipiche in cui si trova adb (platform-tools scaricato a mano, Android SDK, ...).
+pub fn candidates() -> Vec<String> {
+    let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    let home = crate::util::home_dir();
+
+    if let Some(h) = &home {
+        // Cartelle utente: adb direttamente o in una sottocartella tipo "ADB TOOLS", "platform-tools".
+        for sub in ["Desktop", "Downloads", "Documents", ""] {
+            let base = std::path::PathBuf::from(if sub.is_empty() { h.clone() } else { format!("{h}/{sub}") });
+            dirs.push(base.clone());
+            if let Ok(rd) = std::fs::read_dir(&base) {
+                for e in rd.flatten() {
+                    let n = e.file_name().to_string_lossy().to_lowercase();
+                    if e.path().is_dir() && (n.contains("adb") || n.contains("platform") || n.contains("android")) {
+                        dirs.push(e.path());
+                        dirs.push(e.path().join("platform-tools"));
+                    }
+                }
+            }
+        }
+        dirs.push(format!("{h}/Android/Sdk/platform-tools").into());
+        dirs.push(format!("{h}/Library/Android/sdk/platform-tools").into());
+        dirs.push(format!("{h}/scoop/apps/adb/current/platform-tools").into());
+        dirs.push(format!("{h}/scoop/shims").into());
+    }
+    if cfg!(windows) {
+        if let Some(l) = env("LOCALAPPDATA") {
+            dirs.push(format!("{l}/Android/Sdk/platform-tools").into());
+        }
+        for v in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(p) = env(v) {
+                dirs.push(format!("{p}/Android/platform-tools").into());
+                dirs.push(format!("{p}/platform-tools").into());
+            }
+        }
+        for d in ["C:/platform-tools", "C:/adb", "C:/ADB", "C:/Android/platform-tools", "C:/ProgramData/chocolatey/bin"] {
+            dirs.push(d.into());
+        }
+    }
+    for v in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Some(s) = env(v) {
+            dirs.push(format!("{s}/platform-tools").into());
+        }
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    for d in dirs {
+        let f = d.join(exe);
+        if f.is_file() {
+            let s = f.to_string_lossy().into_owned();
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
+/// Trova adb: `ADB_BIN` → percorso salvato → PATH → posizioni tipiche.
+/// Se nulla funziona restituisce `Err(nome)` con il default `adb` (da cui l'errore d'avvio).
+pub fn locate() -> std::result::Result<String, String> {
+    if let Ok(b) = std::env::var("ADB_BIN") {
+        if !b.is_empty() {
+            return Ok(b);
+        }
+    }
+    if let Some(s) = saved_path() {
+        if works(&s) {
+            return Ok(s);
+        }
+    }
+    if works("adb") {
+        return Ok("adb".into());
+    }
+    for c in candidates() {
+        if works(&c) {
+            save_path(&c);
+            return Ok(c);
+        }
+    }
+    Err("adb".into())
+}
+
+/// Titolo del prompt in cui l'utente indica dove si trova adb.
+pub fn path_prompt() -> String {
+    if cfg!(windows) {
+        "Percorso di adb.exe o della cartella platform-tools (es. C:\\platform-tools) — Esc per saltare".into()
+    } else {
+        "Percorso di adb o della cartella che lo contiene — Esc per saltare".into()
+    }
+}
+
+/// Messaggio con i suggerimenti per installare/indicare adb.
+pub fn missing_hint() -> String {
+    if cfg!(windows) {
+        "adb non trovato. Scarica platform-tools da https://developer.android.com/tools/releases/platform-tools, \
+         estrai la cartella ovunque e indicane il percorso (oppure aggiungila al PATH / imposta ADB_BIN)."
+            .into()
+    } else {
+        "adb non trovato: installalo (es. `apt install adb`) o imposta ADB_BIN=/percorso/adb.".into()
+    }
+}
+
 /// Wrapper del binario adb (default `adb`, sovrascrivibile con `ADB_BIN`).
 #[derive(Debug, Clone)]
 pub struct Adb {

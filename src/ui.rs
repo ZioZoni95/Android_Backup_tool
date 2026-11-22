@@ -319,7 +319,7 @@ fn draw_devices(f: &mut Frame, app: &mut App, sel: usize) {
     }
 
     if app.devices.is_empty() {
-        let msg = "nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555";
+        let msg = "nessun device — collega via USB (attiva debug USB) oppure premi 'c' per adb connect IP:5555 — 'a' per indicare dove si trova adb";
         f.render_widget(
             Paragraph::new(msg)
                 .alignment(ratatui::layout::Alignment::Center)
