@@ -258,7 +258,11 @@ fn run() -> Result<()> {
             if let Some(v) = storage {
                 parts.push(("storage", v));
             }
-            let (slow, _) = parts.iter().cloned().fold(("", f64::MAX), |m, p| if p.1 < m.1 { p } else { m });
+            let (mut slow, _) = parts.iter().cloned().fold(("", f64::MAX), |m, p| if p.1 < m.1 { p } else { m });
+            // La lettura dal telefono passa comunque dal collegamento: se è poco sotto, il limite è il collegamento.
+            if slow == "storage" && storage.map_or(false, |v| v > link * 0.85) {
+                slow = "link";
+            }
             println!();
             match slow {
                 "link" => {
