@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Multi-language UI: `src/i18n.rs` detects the system language at startup (`LC_ALL`/`LC_MESSAGES`/`LANGUAGE`/`LANG` on Unix, `GetUserDefaultLocaleName` on Windows via `windows-sys` feature `Win32_Globalization`); `ABT_LANG=it|en` overrides it. Italian locales get Italian, every other locale gets English.
+- `t!()` macro: the Italian source text is the lookup key, translations live in `src/i18n_en.rs`; named placeholders (`t!("... {n}", n = x)`); a missing key falls back to Italian. Unit tests check duplicate keys and placeholder consistency across languages.
+- `transfer::Cancelled`: typed cancellation error, detected with `downcast_ref` instead of matching the (now translated) message text.
+
 ### Changed
+- All TUI, CLI (`abt help`, messages, errors) and place-label strings go through `t!()`.
 - README: explicit requirements table (adb platform-tools, `tar`, USB debugging, Android 6+/toybox, 24-bit terminal, Rust only for source builds) in both languages.
 
 ## [0.3.0] - 2026-11-22

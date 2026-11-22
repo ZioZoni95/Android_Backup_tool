@@ -51,7 +51,7 @@ fn apk_paths(adb: &Adb, pkg: &str) -> Result<Vec<String>> {
 pub fn apk_pull(adb: &Adb, pkg: &str, out_dir: &str, flag: &AtomicBool, sink: &dyn Sink) -> Result<usize> {
     let paths = apk_paths(adb, pkg)?;
     if paths.is_empty() {
-        bail!("nessun APK trovato per {pkg}");
+        bail!(t!("nessun APK trovato per {pkg}", pkg = pkg));
     }
     let dst_root = format!("{}/{}", out_dir.trim_end_matches('/'), pkg);
     fs::create_dir_all(&dst_root)?;
@@ -66,7 +66,7 @@ pub fn apk_pull(adb: &Adb, pkg: &str, out_dir: &str, flag: &AtomicBool, sink: &d
     sink.set_total(total);
     for (i, p) in paths.iter().enumerate() {
         if flag.load(Ordering::Relaxed) {
-            bail!("annullato");
+            bail!(crate::transfer::Cancelled);
         }
         let name = p.rsplit('/').next().unwrap_or(p);
         let fname = if i == 0 && name == "base.apk" {
@@ -91,8 +91,8 @@ pub fn export_content(
 ) -> Result<usize> {
     let proj = cols.join(",");
     let cmd = format!("content query --user 0 --uri {uri} --projection {proj}");
-    sink.msg("query del content provider…");
-    let text = adb.shell(&cmd).context("content query non riuscita (permessi shell negati?)")?;
+    sink.msg(t!("query del content provider…"));
+    let text = adb.shell(&cmd).context(t!("content query non riuscita (permessi shell negati?)"))?;
 
     // Ogni riga logica inizia con "Row: N "; le righe successive sono
     // continuazioni del valore precedente (es. corpo SMS con newline).
@@ -111,7 +111,7 @@ pub fn export_content(
     };
     for line in text.lines() {
         if flag.load(Ordering::Relaxed) {
-            bail!("annullato");
+            bail!(crate::transfer::Cancelled);
         }
         let line = line.trim_end_matches('\r');
         if line.starts_with("Row: ") {
@@ -125,7 +125,7 @@ pub fn export_content(
     }
     flush(&mut cur, &mut rows);
 
-    let mut f = fs::File::create(out_path).with_context(|| format!("creazione di {out_path}"))?;
+    let mut f = fs::File::create(out_path).with_context(|| t!("creazione di {path}", path = out_path))?;
     for r in &rows {
         let mut s = serde_json::to_string(r)?;
         s.push('\n');
@@ -186,9 +186,11 @@ pub fn appdata_pull(adb: &Adb, pkg: &str, out_dir: &str, flag: &AtomicBool, sink
             let cmd2 = format!("run-as {} toybox tar -cf - .", sh_quote(pkg));
             match extract_from_adb(adb, &cmd2, &dst_root, flag, sink) {
                 Ok(()) => Ok(()),
-                Err(_) => bail!(
-                    "app-data di {pkg} non estraibile: serve root o app debuggabile ({e})"
-                ),
+                Err(_) => bail!(t!(
+                    "app-data di {pkg} non estraibile: serve root o app debuggabile ({e})",
+                    pkg = pkg,
+                    e = e
+                )),
             }
         }
     }
@@ -207,16 +209,16 @@ fn extract_from_adb(adb: &Adb, cmd: &str, dst: &str, flag: &AtomicBool, sink: &d
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .context("avvio tar locale")?;
-    let mut out1 = c1.stdout.take().context("stdout adb assente")?;
-    let mut in2 = c2.stdin.take().context("stdin tar locale")?;
+        .context(t!("avvio tar locale"))?;
+    let mut out1 = c1.stdout.take().context(t!("stdout adb assente"))?;
+    let mut in2 = c2.stdin.take().context(t!("stdin tar locale"))?;
     let mut buf = vec![0u8; MB as usize];
     let mut n = 0usize;
     loop {
         if flag.load(Ordering::Relaxed) {
             let _ = c1.kill();
             let _ = c2.kill();
-            bail!("annullato");
+            bail!(crate::transfer::Cancelled);
         }
         match out1.read(&mut buf) {
             Ok(0) => break,
@@ -225,7 +227,7 @@ fn extract_from_adb(adb: &Adb, cmd: &str, dst: &str, flag: &AtomicBool, sink: &d
                 sink.add_bytes(k as u64);
                 n += 1;
                 if n % 64 == 0 {
-                    sink.msg("estrazione in corso…");
+                    sink.msg(t!("estrazione in corso…"));
                 }
             }
             Err(e) => {
@@ -239,13 +241,13 @@ fn extract_from_adb(adb: &Adb, cmd: &str, dst: &str, flag: &AtomicBool, sink: &d
     let s1 = c1.wait()?;
     let o2 = c2.wait_with_output()?;
     if flag.load(Ordering::Relaxed) {
-        bail!("annullato");
+        bail!(crate::transfer::Cancelled);
     }
     if !s1.success() {
-        bail!("tar remoto fallito (exit {s1})");
+        bail!(t!("tar remoto fallito (exit {s1})", s1 = s1));
     }
     if !o2.status.success() {
-        bail!("estrazione fallita");
+        bail!(t!("estrazione fallita"));
     }
     let _ = Path::new(dst);
     Ok(())

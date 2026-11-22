@@ -41,19 +41,19 @@ fn home() -> Option<String> {
 pub fn local_places() -> Vec<Place> {
     let mut v: Vec<Place> = Vec::new();
     let Some(h) = home() else {
-        return vec![("Radice".into(), if cfg!(windows) { "C:/" } else { "/" }.into())];
+        return vec![(t!("Radice").into(), if cfg!(windows) { "C:/" } else { "/" }.into())];
     };
     v.push(("Home".into(), h.clone()));
     if let Ok(b) = crate::util::default_backup_dir() {
         v.push(("Backup".into(), b));
     }
     for (label, names) in [
-        ("Scrivania", &["Desktop", "Scrivania"][..]),
-        ("Documenti", &["Documents", "Documenti"][..]),
+        (t!("Scrivania"), &["Desktop", "Scrivania"][..]),
+        (t!("Documenti"), &["Documents", "Documenti"][..]),
         ("Download", &["Downloads", "Download", "Scaricati"][..]),
-        ("Immagini", &["Pictures", "Immagini"][..]),
+        (t!("Immagini"), &["Pictures", "Immagini"][..]),
         ("Video", &["Videos", "Video"][..]),
-        ("Musica", &["Music", "Musica"][..]),
+        (t!("Musica"), &["Music", "Musica"][..]),
     ] {
         if let Some(n) = names.iter().find(|n| Path::new(&format!("{h}/{n}")).is_dir()) {
             v.push((label.into(), format!("{h}/{n}")));
@@ -61,14 +61,14 @@ pub fn local_places() -> Vec<Place> {
     }
     for d in mounted_disks() {
         let space = if d.total > 0 {
-            format!(" · {} liberi di {}", crate::util::humanize(d.avail), crate::util::humanize(d.total))
+            t!(" · {avail} liberi di {total}", avail = crate::util::humanize(d.avail), total = crate::util::humanize(d.total))
         } else {
             String::new()
         };
-        v.push((format!("⛁ Disco «{}»{space}", d.name), d.mount));
+        v.push((t!("⛁ Disco «{name}»{space}", name = d.name, space = space), d.mount));
     }
     if !cfg!(windows) {
-        v.push(("Radice (/)".into(), "/".into()));
+        v.push((t!("Radice (/)").into(), "/".into()));
     }
     v
 }
@@ -183,16 +183,16 @@ pub fn mounted_disks() -> Vec<Disk> {
 /// Luoghi predefiniti del device (verifica l'esistenza con una sola chiamata adb).
 pub fn remote_places(adb: &Adb) -> Vec<Place> {
     let cands = [
-        ("Memoria interna", "/sdcard"),
-        ("Fotocamera", "/sdcard/DCIM"),
-        ("Immagini", "/sdcard/Pictures"),
+        (t!("Memoria interna"), "/sdcard"),
+        (t!("Fotocamera"), "/sdcard/DCIM"),
+        (t!("Immagini"), "/sdcard/Pictures"),
         ("Download", "/sdcard/Download"),
-        ("Documenti", "/sdcard/Documents"),
-        ("Musica", "/sdcard/Music"),
+        (t!("Documenti"), "/sdcard/Documents"),
+        (t!("Musica"), "/sdcard/Music"),
         ("Video", "/sdcard/Movies"),
         ("WhatsApp", "/sdcard/Android/media/com.whatsapp/WhatsApp"),
-        ("WhatsApp (vecchio)", "/sdcard/WhatsApp"),
-        ("Registrazioni", "/sdcard/Recordings"),
+        (t!("WhatsApp (vecchio)"), "/sdcard/WhatsApp"),
+        (t!("Registrazioni"), "/sdcard/Recordings"),
     ];
     let mut script = String::new();
     for (_, p) in &cands {
@@ -201,16 +201,16 @@ pub fn remote_places(adb: &Adb) -> Vec<Place> {
     script.push_str("for d in /storage/*-*; do [ -d \"$d\" ] && echo \"$d\"; done");
     let out = adb.shell(&script).unwrap_or_default();
     let found: Vec<&str> = out.lines().map(|l| l.trim()).collect();
-    let mut v: Vec<Place> = vec![("Memoria interna".into(), "/sdcard".into())];
+    let mut v: Vec<Place> = vec![(t!("Memoria interna").into(), "/sdcard".into())];
     for (l, p) in cands.iter().skip(1) {
         if found.contains(p) {
             v.push((l.to_string(), p.to_string()));
         }
     }
     for f in found.iter().filter(|f| f.starts_with("/storage/")) {
-        v.push((format!("Scheda SD ({})", f.rsplit('/').next().unwrap_or("")), f.to_string()));
+        v.push((t!("Scheda SD ({id})", id = f.rsplit('/').next().unwrap_or("")), f.to_string()));
     }
-    v.push(("Radice (/)".into(), "/".into()));
+    v.push((t!("Radice (/)").into(), "/".into()));
     v
 }
 

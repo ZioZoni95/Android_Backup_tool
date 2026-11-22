@@ -34,7 +34,7 @@ use util::humanize;
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("errore: {e:#}");
+        eprintln!("{} {e:#}", t!("errore:"));
         std::process::exit(1);
     }
 }
@@ -87,21 +87,18 @@ fn resolve_serial(adb: &mut Adb, want: Option<String>) -> Result<()> {
     let devs = adb.devices()?;
     let ok: Vec<_> = devs.iter().filter(|d| d.state == "device").collect();
     match ok.len() {
-        0 => bail!(
-            "nessun device adb in stato 'device' — collega via USB con debug USB attivo, \
-             usa 'abt devices', oppure 'abt connect IP:5555'"
-        ),
+        0 => bail!(t!(
+            "nessun device adb in stato 'device' — collega via USB con debug USB attivo, usa 'abt devices', oppure 'abt connect IP:5555'"
+        )),
         1 => {
             adb.serial = Some(ok[0].serial.clone());
             Ok(())
         }
-        n => bail!(
-            "{n} device collegati: specifica -s SERIAL ({})",
-            ok.iter()
-                .map(|d| d.serial.clone())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        n => bail!(t!(
+            "{n} device collegati: specifica -s SERIAL ({list})",
+            n = n,
+            list = ok.iter().map(|d| d.serial.clone()).collect::<Vec<_>>().join(", ")
+        )),
     }
 }
 
@@ -196,7 +193,7 @@ fn run() -> Result<()> {
         "connect" => {
             let addr = rest
                 .first()
-                .ok_or_else(|| anyhow::anyhow!("uso: abt connect IP:5555"))?;
+                .ok_or_else(|| anyhow::anyhow!(t!("uso: abt connect IP:5555")))?;
             let a = Adb::new(adb_bin());
             let out = a.connect(addr)?;
             println!("{out}");
@@ -207,7 +204,7 @@ fn run() -> Result<()> {
             resolve_serial(&mut a, serial)?;
             let out = a.tcpip(5555)?;
             println!("{out}");
-            println!("ora collega via Wi-Fi:  abt connect <IP-DEL-TELEFONO>:5555");
+            println!("{}", t!("ora collega via Wi-Fi:  abt connect <IP-DEL-TELEFONO>:5555"));
             Ok(())
         }
         "pull" => {
@@ -228,13 +225,13 @@ fn run() -> Result<()> {
                 sink.print(true);
                 eprintln!();
             }
-            println!("{} elementi → {dst}", srcs.len());
+            println!("{}", t!("{n} elementi → {dst}", n = srcs.len(), dst = dst));
             Ok(())
         }
         "push" => {
             // abt push <locale>... <cartella-remota>
             if rest.len() < 2 {
-                bail!("uso: abt push <locale>... <cartella-remota>");
+                bail!(t!("uso: abt push <locale>... <cartella-remota>"));
             }
             let (dst, srcs) = rest.split_last().unwrap();
             let mut a = Adb::new(adb_bin());
@@ -251,7 +248,7 @@ fn run() -> Result<()> {
                 sink.print(true);
                 eprintln!();
             }
-            println!("{} elementi → {dst}", srcs.len());
+            println!("{}", t!("{n} elementi → {dst}", n = srcs.len(), dst = dst));
             Ok(())
         }
         "ls" => {
@@ -279,9 +276,10 @@ fn run() -> Result<()> {
         "disks" => {
             for d in places::mounted_disks() {
                 println!(
-                    "{:<24} {:>10} liberi di {:>10}  {}",
+                    "{:<24} {:>10} {} {:>10}  {}",
                     d.name,
                     humanize(d.avail),
+                    t!("liberi di"),
                     humanize(d.total),
                     d.mount
                 );
@@ -289,11 +287,11 @@ fn run() -> Result<()> {
             Ok(())
         }
         "mkdir" => {
-            let p = rest.first().ok_or_else(|| anyhow::anyhow!("uso: abt mkdir <remoto>"))?;
+            let p = rest.first().ok_or_else(|| anyhow::anyhow!(t!("uso: abt mkdir <remoto>")))?;
             let mut a = Adb::new(adb_bin());
             resolve_serial(&mut a, serial)?;
             device_fs::mkdir_device(&a, p)?;
-            println!("creata {p}");
+            println!("{}", t!("creata {p}", p = p));
             Ok(())
         }
         "mv" | "rename" => {
@@ -306,21 +304,21 @@ fn run() -> Result<()> {
         }
         "rm" => {
             if rest.is_empty() {
-                bail!("uso: abt rm [-y] <remoto>...");
+                bail!(t!("uso: abt rm [-y] <remoto>..."));
             }
             let mut a = Adb::new(adb_bin());
             resolve_serial(&mut a, serial)?;
             if !opts.yes {
-                eprint!("Eliminare DAL DEVICE {} (irreversibile)? [s/N] ", rest.join(", "));
+                eprint!("{}", t!("Eliminare DAL DEVICE {list} (irreversibile)? [s/N] ", list = rest.join(", ")));
                 let mut l = String::new();
                 std::io::stdin().read_line(&mut l)?;
                 if !matches!(l.trim().to_lowercase().as_str(), "s" | "si" | "sì" | "y" | "yes") {
-                    bail!("annullato");
+                    bail!(transfer::Cancelled);
                 }
             }
             for p in &rest {
                 device_fs::rm_device(&a, p)?;
-                println!("eliminato {p}");
+                println!("{}", t!("eliminato {p}", p = p));
             }
             Ok(())
         }
@@ -341,7 +339,7 @@ fn run() -> Result<()> {
             let flag = new_flag();
             for src in &srcs {
                 if !device_fs::is_dir(&a, src).unwrap_or(false) {
-                    eprintln!("salto {src}: non esiste");
+                    eprintln!("{}", t!("salto {src}: non esiste", src = src));
                     continue;
                 }
                 let name = src.rsplit('/').next().unwrap_or(src);
@@ -350,7 +348,7 @@ fn run() -> Result<()> {
                 let st = transfer::sync_mirror(&a, src, &dst, delete, &flag, &sink)?;
                 sink.print(true);
                 eprintln!();
-                println!("{src}: {} file nuovi/aggiornati, {}", st.files, humanize(st.bytes));
+                println!("{}", t!("{src}: {files} file nuovi/aggiornati, {size}", src = src, files = st.files, size = humanize(st.bytes)));
             }
             if rest.is_empty() {
                 for (c, f) in [("sms", "sms.jsonl"), ("calllog", "calllog.jsonl")] {
@@ -362,12 +360,12 @@ fn run() -> Result<()> {
                         actions::export_calllog(&a, &path, &flag, &sink)
                     };
                     match r {
-                        Ok(n) => println!("{c}: {n} record → {path}"),
+                        Ok(n) => println!("{}", t!("{c}: {n} record → {path}", c = c, n = n, path = path)),
                         Err(e) => eprintln!("{c}: {e}"),
                     }
                 }
             }
-            println!("backup in {out}");
+            println!("{}", t!("backup in {out}", out = out));
             Ok(())
         }
         "sync" => {
@@ -380,10 +378,13 @@ fn run() -> Result<()> {
             sink.print(true);
             eprintln!();
             println!(
-                "sync completato: {} file, {} rimossi, {}",
-                st.files,
-                st.deleted,
-                humanize(st.bytes)
+                "{}",
+                t!(
+                    "sync completato: {files} file, {deleted} rimossi, {size}",
+                    files = st.files,
+                    deleted = st.deleted,
+                    size = humanize(st.bytes)
+                )
             );
             Ok(())
         }
@@ -392,7 +393,7 @@ fn run() -> Result<()> {
                 let mut a = Adb::new(adb_bin());
                 resolve_serial(&mut a, serial)?;
                 for apk in actions::apk_list(&a)? {
-                    println!("{}  ({} file)", apk.package, apk.paths.len());
+                    println!("{}  {}", apk.package, t!("({n} file)", n = apk.paths.len()));
                 }
                 Ok(())
             }
@@ -405,15 +406,15 @@ fn run() -> Result<()> {
                 let n = actions::apk_pull(&a, &pkg, &out, &flag, &sink)?;
                 sink.print(true);
                 eprintln!();
-                println!("apk {pkg}: {n} file → {out}/{pkg}");
+                println!("{}", t!("apk {pkg}: {n} file → {out}/{pkg}", pkg = pkg, n = n, out = out));
                 Ok(())
             }
-            _ => bail!("uso: abt apk list | abt apk pull <pkg> <outdir>"),
+            _ => bail!(t!("uso: abt apk list | abt apk pull <pkg> <outdir>")),
         },
         "sms" | "calllog" => {
             let out = rest
                 .first()
-                .ok_or_else(|| anyhow::anyhow!("uso: abt {cmd} <out.jsonl>"))?;
+                .ok_or_else(|| anyhow::anyhow!(t!("uso: abt {cmd} <out.jsonl>", cmd = cmd)))?;
             let mut a = Adb::new(adb_bin());
             resolve_serial(&mut a, serial)?;
             let sink = CliSink::new(cmd.clone());
@@ -423,7 +424,7 @@ fn run() -> Result<()> {
             } else {
                 actions::export_calllog(&a, out, &flag, &sink)?
             };
-            println!("{cmd}: {n} record → {out}");
+            println!("{}", t!("{cmd}: {n} record → {out}", cmd = cmd, n = n, out = out));
             Ok(())
         }
         "appdata" => {
@@ -436,7 +437,7 @@ fn run() -> Result<()> {
             println!("appdata {pkg} → {out}/{pkg}");
             Ok(())
         }
-        other => bail!("comando sconosciuto: {other} (usa 'abt help')"),
+        other => bail!(t!("comando sconosciuto: {other} (usa 'abt help')", other = other)),
     }
 }
 
@@ -444,7 +445,7 @@ fn run() -> Result<()> {
 /// altrimenti `-o` o la cartella di default.
 fn split_dest(rest: &[String], out: Option<String>, local: bool) -> Result<(Vec<String>, String)> {
     if rest.is_empty() {
-        bail!("uso: abt pull <remoto>... [<locale>]");
+        bail!(t!("uso: abt pull <remoto>... [<locale>]"));
     }
     if let Some(o) = out {
         return Ok((rest.to_vec(), o));
@@ -463,50 +464,47 @@ fn split_dest(rest: &[String], out: Option<String>, local: bool) -> Result<(Vec<
 
 fn two_args(rest: &[String]) -> Result<(String, String)> {
     if rest.len() < 2 {
-        bail!("servono due argomenti <sorgente> <destinazione>");
+        bail!(t!("servono due argomenti <sorgente> <destinazione>"));
     }
     Ok((rest[0].clone(), rest[1].clone()))
 }
 
 /// Versione e copyright, ad es. `abt 0.3.0 — © 2026 ZioZoni95 — licenza MIT`.
 fn version_line() -> String {
-    format!("abt {} — © 2026 ZioZoni95 — licenza MIT", env!("CARGO_PKG_VERSION"))
+    format!("abt {} — © 2026 ZioZoni95 — {}", env!("CARGO_PKG_VERSION"), t!("licenza MIT"))
 }
 
 fn print_help() {
     for l in util::LOGO {
         println!("\x1b[32m{l}\x1b[0m");
     }
-    println!(
-        "abt — Android Backup Tool (TUI + CLI via adb, alternativa a MTP)\n\
-\n\
-USO:\n\
-  abt                                file manager TUI\n\
-  abt devices                        elenco device collegati\n\
-  abt connect IP:5555                collega device via Wi-Fi\n\
-  abt wifi                           adbd del device -> modalità tcpip (via USB)\n\
-\n\
-FILE E CARTELLE (sul device):\n\
-  abt ls [-l] [<remoto>]             elenco (default /sdcard)\n\
-  abt disks                          dischi montati sul computer (destinazioni per i backup)\n\
-  abt pull <remoto>... [<locale>]    copia dal device (default ~/Android_Backup/Backup) [--verify]\n\
-  abt push <locale>... <remoto>      copia sul device (cartella creata se manca)\n\
-  abt sync <remoto> <locale>         mirror incrementale [--delete]\n\
-  abt mkdir <remoto> · mv <da> <a> · rm [-y] <remoto>...\n\
-\n\
-BACKUP:\n\
-  abt backup [-o DIR] [<remoto>...]  sync di DCIM/Pictures/Documents/Download/WhatsApp + SMS/chiamate\n\
-  abt apk list | apk pull <pkg> <outdir>     backup APK\n\
-  abt sms <out.jsonl> | calllog <out.jsonl>  backup SMS / registro chiamate\n\
-  abt appdata <pkg> <outdir>                 dati privati app (root/run-as)\n\
-\n\
-Opzioni: -s SERIAL · -o DIR (destinazione) · -y (niente conferma) · ADB_BIN=/percorso/adb\n\
-Cartella di default: $ABT_BACKUP_DIR oppure ~/Android_Backup/Backup\n\
-\n\
-TUI: premi ? per l'elenco completo dei comandi\n\
-\n{}",
-        version_line()
-    );
+    println!("{}\n\n{}", t!("abt — Android Backup Tool (TUI + CLI via adb, alternativa a MTP)
+
+USO:
+  abt                                file manager TUI
+  abt devices                        elenco device collegati
+  abt connect IP:5555                collega device via Wi-Fi
+  abt wifi                           adbd del device -> modalità tcpip (via USB)
+
+FILE E CARTELLE (sul device):
+  abt ls [-l] [<remoto>]             elenco (default /sdcard)
+  abt disks                          dischi montati sul computer (destinazioni per i backup)
+  abt pull <remoto>... [<locale>]    copia dal device (default ~/Android_Backup/Backup) [--verify]
+  abt push <locale>... <remoto>      copia sul device (cartella creata se manca)
+  abt sync <remoto> <locale>         mirror incrementale [--delete]
+  abt mkdir <remoto> · mv <da> <a> · rm [-y] <remoto>...
+
+BACKUP:
+  abt backup [-o DIR] [<remoto>...]  sync di DCIM/Pictures/Documents/Download/WhatsApp + SMS/chiamate
+  abt apk list | apk pull <pkg> <outdir>     backup APK
+  abt sms <out.jsonl> | calllog <out.jsonl>  backup SMS / registro chiamate
+  abt appdata <pkg> <outdir>                 dati privati app (root/run-as)
+
+Opzioni: -s SERIAL · -o DIR (destinazione) · -y (niente conferma) · ADB_BIN=/percorso/adb
+Cartella di default: $ABT_BACKUP_DIR oppure ~/Android_Backup/Backup
+Lingua: automatica dal sistema, oppure ABT_LANG=it|en
+
+TUI: premi ? per l'elenco completo dei comandi"), version_line());
 }
 
 fn tui() -> Result<()> {

@@ -113,9 +113,9 @@ pub enum SortMode {
 impl SortMode {
     pub fn label(self) -> &'static str {
         match self {
-            SortMode::Name => "nome",
-            SortMode::Size => "dimensione",
-            SortMode::Date => "data",
+            SortMode::Name => t!("nome"),
+            SortMode::Size => t!("dimensione"),
+            SortMode::Date => t!("data"),
         }
     }
     fn next(self) -> Self {
@@ -258,7 +258,7 @@ fn default_backup_dir(log: &mut VecDeque<String>) -> String {
     match crate::util::default_backup_dir() {
         Ok(d) => d,
         Err(e) => {
-            log.push_back(format!("⚠ cartella backup: {e}"));
+            log.push_back(t!("⚠ cartella backup: {e}", e = e));
             std::env::current_dir()
                 .map(|p| crate::util::norm_local(&p.to_string_lossy()))
                 .unwrap_or_else(|_| "/".into())
@@ -425,9 +425,10 @@ impl App {
     pub fn connect(&mut self, sel: usize) {
         let Some(dev) = self.devices.get(sel).cloned() else { return };
         if dev.state != "device" {
-            self.log(format!(
-                "⚠ {}: stato '{}' — sblocca il telefono e conferma la finestra RSA, poi riprova",
-                dev.serial, dev.state
+            self.log(t!(
+                "⚠ {serial}: stato '{state}' — sblocca il telefono e conferma la finestra RSA, poi riprova",
+                serial = dev.serial,
+                state = dev.state
             ));
             return;
         }
@@ -447,7 +448,7 @@ impl App {
         self.queue = Some(Arc::new(Queue::spawn(self.adb.clone())));
         self.remote = Some(Pane::new("/sdcard".into()));
         self.active = Side::Remote;
-        self.log(format!("device connesso: {}", dev.serial));
+        self.log(t!("device connesso: {serial}", serial = dev.serial));
         self.refresh(Side::Local);
         self.refresh(Side::Remote);
         self.screen = Screen::Files;
@@ -656,7 +657,7 @@ impl App {
     /// (precompilata con la cartella dell'altro pannello).
     fn transfer_request(&mut self, from: Side, whole: bool) {
         if self.queue.is_none() {
-            self.log("⚠ collega prima un device");
+            self.log(t!("⚠ collega prima un device"));
             return;
         }
         // y/p sulla voce ".." = trasferisci la cartella corrente intera
@@ -665,7 +666,7 @@ impl App {
         let whole = whole || on_dotdot;
         let items = self.transfer_items(from, whole);
         if items.is_empty() {
-            self.log("niente da trasferire: seleziona o marca qualche voce (spazio)");
+            self.log(t!("niente da trasferire: seleziona o marca qualche voce (spazio)"));
             return;
         }
         let (dirs, files) = (
@@ -689,15 +690,15 @@ impl App {
                 None => return,
             },
         };
-        let (verb, arrow) = if from == Side::Remote { ("Pull", "→ locale") } else { ("Push", "→ device") };
+        let (verb, arrow) = if from == Side::Remote { ("Pull", t!("→ locale")) } else { ("Push", "→ device") };
         let what = if whole {
             let n = items.first().map(|i| dev_basename(&i.path).to_string()).unwrap_or_default();
-            format!("cartella intera «{n}»")
+            t!("cartella intera «{n}»", n = n)
         } else {
-            format!("{dirs} cartelle, {files} file (≥ {})", crate::util::humanize(bytes))
+            t!("{dirs} cartelle, {files} file (≥ {size})", dirs = dirs, files = files, size = crate::util::humanize(bytes))
         };
         self.screen = Screen::Input {
-            title: format!("{verb} {arrow}: {what} — cartella di destinazione"),
+            title: t!("{verb} {arrow}: {what} — cartella di destinazione", verb = verb, arrow = arrow, what = what),
             value: dest,
             action: InputAction::Transfer(from, whole),
         };
@@ -708,7 +709,7 @@ impl App {
         let items = self.transfer_items(Side::Remote, whole);
         let local_cwd = local_cwd.trim_end_matches('/').to_string();
         if let Err(e) = std::fs::create_dir_all(&local_cwd) {
-            self.log(format!("⚠ destinazione {local_cwd}: {e}"));
+            self.log(t!("⚠ destinazione {dir}: {e}", dir = local_cwd, e = e));
             return;
         }
         let mut n = 0;
@@ -725,7 +726,7 @@ impl App {
             ));
             n += 1;
         }
-        self.log(format!("accodati {n} pull → {local_cwd}"));
+        self.log(t!("accodati {n} pull → {dir}", n = n, dir = local_cwd));
     }
 
     /// `p`: accoda il push (locale -> device) di selezione/marcature del pannello locale.
@@ -738,11 +739,11 @@ impl App {
         let items = self.transfer_items(Side::Local, whole);
         let dst_dir = dst_dir.trim_end_matches('/').to_string();
         if dst_dir.is_empty() {
-            self.log("⚠ destinazione non valida");
+            self.log(t!("⚠ destinazione non valida"));
             return;
         }
         if let Err(e) = device_fs::mkdir_device(&self.adb, &dst_dir) {
-            self.log(format!("⚠ destinazione {dst_dir}: {e}"));
+            self.log(t!("⚠ destinazione {dir}: {e}", dir = dst_dir, e = e));
             return;
         }
         let mut n = 0;
@@ -761,7 +762,7 @@ impl App {
             ));
             n += 1;
         }
-        self.log(format!("accodati {n} push → {dst_dir}"));
+        self.log(t!("accodati {n} push → {dir}", n = n, dir = dst_dir));
     }
 
     /// `s`: mirror incrementale della directory remota corrente nel pannello locale.
@@ -781,7 +782,7 @@ impl App {
             dst.clone(),
             format!("sync {name}"),
         ));
-        self.log(format!("avviato sync: {} → {dst}", remote.cwd));
+        self.log(t!("avviato sync: {src} → {dst}", src = remote.cwd, dst = dst));
     }
 
     /// `d`: richiede conferma di cancellazione degli elementi del pannello attivo.
@@ -789,7 +790,7 @@ impl App {
         let side = self.active;
         let items = self.selection_items(side);
         if items.is_empty() {
-            self.log("niente da eliminare");
+            self.log(t!("niente da eliminare"));
             return;
         }
         let names: Vec<String> = items
@@ -831,12 +832,16 @@ impl App {
             })
             .unwrap_or(0)
         };
-        let where_ = if side == Side::Remote { "DEVICE" } else { "locale" };
+        let where_ = if side == Side::Remote { "DEVICE" } else { t!("locale") };
         self.screen = Screen::Confirm {
-            title: "Conferma cancellazione".into(),
-            message: format!(
-                "Eliminare da {where_}: {dirs} cartelle (con contenuto) e {files} file ({}) ?\n{preview}\n\nOperazione irreversibile.",
-                crate::util::humanize(bytes)
+            title: t!("Conferma cancellazione").into(),
+            message: t!(
+                "Eliminare da {where_}: {dirs} cartelle (con contenuto) e {files} file ({size}) ?\n{preview}\n\nOperazione irreversibile.",
+                where_ = where_,
+                dirs = dirs,
+                files = files,
+                size = crate::util::humanize(bytes),
+                preview = preview
             ),
             action,
         };
@@ -870,7 +875,7 @@ impl App {
                         });
                     }
                 }
-                self.log(format!("eliminati {ok} elementi sul device"));
+                self.log(t!("eliminati {ok} elementi sul device", ok = ok));
                 self.refresh(Side::Remote);
             }
             ConfirmAction::DeleteLocal(paths) => {
@@ -889,7 +894,7 @@ impl App {
                         is_dir: false,
                     });
                 }
-                self.log(format!("eliminati {ok} elementi in locale"));
+                self.log(t!("eliminati {ok} elementi in locale", ok = ok));
                 self.refresh(Side::Local);
             }
         }
@@ -900,8 +905,8 @@ impl App {
         let side = self.active;
         self.screen = Screen::Input {
             title: match side {
-                Side::Local => "Nuova cartella in locale".into(),
-                Side::Remote => "Nuova cartella sul device".into(),
+                Side::Local => t!("Nuova cartella in locale").into(),
+                Side::Remote => t!("Nuova cartella sul device").into(),
             },
             value: String::new(),
             action: InputAction::Mkdir(side),
@@ -911,7 +916,7 @@ impl App {
     /// Schermata device: `c` -> input indirizzo Wi-Fi adb.
     pub fn connect_request(&mut self) {
         self.screen = Screen::Input {
-            title: "adb connect IP:PORT (es. 192.168.1.5:5555)".into(),
+            title: t!("adb connect IP:PORT (es. 192.168.1.5:5555)").into(),
             value: String::new(),
             action: InputAction::Connect,
         };
@@ -937,23 +942,23 @@ impl App {
             InputAction::AdbPath => {
                 let bin = crate::adb::resolve_user_path(&v);
                 if v.is_empty() || !crate::adb::works(&bin) {
-                    self.log(format!("⚠ adb non valido: {bin}"));
+                    self.log(t!("⚠ adb non valido: {bin}", bin = bin));
                     self.screen = Screen::Input {
-                        title: format!("adb non trovato in «{v}» — riprova (Esc per annullare)"),
+                        title: t!("adb non trovato in «{v}» — riprova (Esc per annullare)", v = v),
                         value: v,
                         action: InputAction::AdbPath,
                     };
                     return;
                 }
                 crate::adb::save_path(&bin);
-                self.log(format!("adb: {bin} (salvato)"));
+                self.log(t!("adb: {bin} (salvato)", bin = bin));
                 self.adb.bin = bin;
                 self.refresh_devices();
                 self.screen = Screen::Devices { sel: 0 };
             }
             InputAction::Mkdir(side) => {
                 if v.is_empty() || v.contains('/') || (cfg!(windows) && v.contains('\\')) || v.split('/').any(|c| c == "..") {
-                    self.log(format!("⚠ nome non valido: {v:?}"));
+                    self.log(format!("{} {v:?}", t!("⚠ nome non valido:")));
                     return;
                 }
                 match side {
@@ -961,7 +966,7 @@ impl App {
                         let p = format!("{}/{}", self.local.cwd.trim_end_matches('/'), v);
                         match device_fs::mkdir_local(&p) {
                             Ok(()) => {
-                                self.log(format!("creata {p}"));
+                                self.log(t!("creata {p}", p = p));
                                 self.refresh(Side::Local);
                             }
                             Err(e) => self.log(format!("⚠ mkdir: {e}")),
@@ -972,7 +977,7 @@ impl App {
                         let p = dev_join(&remote.cwd, &v);
                         match device_fs::mkdir_device(&self.adb, &p) {
                             Ok(()) => {
-                                self.log(format!("creata {p}"));
+                                self.log(t!("creata {p}", p = p));
                                 self.refresh(Side::Remote);
                             }
                             Err(e) => self.log(format!("⚠ mkdir: {e}")),
@@ -1011,7 +1016,7 @@ impl App {
             }
             InputAction::Rename(side, old) => {
                 if v.is_empty() || v.contains('/') || (cfg!(windows) && v.contains('\\')) || v == "." || v == ".." {
-                    self.log(format!("⚠ nome non valido: {v:?}"));
+                    self.log(format!("{} {v:?}", t!("⚠ nome non valido:")));
                     return;
                 }
                 if dev_basename(&old) == v {
@@ -1025,14 +1030,14 @@ impl App {
                 };
                 match res {
                     Ok(()) => {
-                        self.log(format!("rinominato in {v}"));
+                        self.log(t!("rinominato in {v}", v = v));
                         if let Some(p) = self.pane(side) {
                             p.marked.clear();
                             p.goto_name = Some(v);
                         }
                         self.refresh(side);
                     }
-                    Err(e) => self.log(format!("⚠ rinomina: {e}")),
+                    Err(e) => self.log(t!("⚠ rinomina: {e}", e = e)),
                 }
             }
             InputAction::Connect => {
@@ -1180,7 +1185,7 @@ impl App {
 
     /// Costruisce e mostra il menu contestuale per la voce sotto il cursore.
     fn open_menu(&mut self, side: Side, pos: (u16, u16)) {
-        let other = if side == Side::Local { "device" } else { "locale" };
+        let other = if side == Side::Local { "device" } else { t!("locale") };
         let (entry, marked, cwd_name) = {
             let Some(p) = self.pane(side) else { return };
             (
@@ -1192,27 +1197,27 @@ impl App {
         let mut items: Vec<(String, MenuAction)> = Vec::new();
         let mut title = format!("«{cwd_name}»");
         if let Some(e) = &entry {
-            title = if marked > 0 { format!("{marked} selezionati") } else { format!("«{}»", e.name) };
-            let target = if marked > 0 { format!("{marked} selezionati") } else if e.is_dir { format!("cartella «{}»", e.name) } else { format!("«{}»", e.name) };
+            title = if marked > 0 { t!("{marked} selezionati", marked = marked) } else { format!("«{}»", e.name) };
+            let target = if marked > 0 { t!("{marked} selezionati", marked = marked) } else if e.is_dir { t!("cartella «{name}»", name = e.name) } else { format!("«{}»", e.name) };
             if e.is_dir && marked == 0 {
-                items.push(("Apri cartella".into(), MenuAction::Open));
+                items.push((t!("Apri cartella").into(), MenuAction::Open));
             }
-            items.push((format!("Copia {target} → {other}"), MenuAction::Transfer));
-            items.push(("Marca / smarca".into(), MenuAction::Mark));
+            items.push((t!("Copia {target} → {other}", target = target, other = other), MenuAction::Transfer));
+            items.push((t!("Marca / smarca").into(), MenuAction::Mark));
             if marked == 0 {
-                items.push(("Rinomina…".into(), MenuAction::Rename));
+                items.push((t!("Rinomina…").into(), MenuAction::Rename));
             }
-            items.push((format!("Elimina {target}…"), MenuAction::Delete));
+            items.push((t!("Elimina {target}…", target = target), MenuAction::Delete));
         }
-        items.push((format!("Copia cartella corrente «{cwd_name}» intera → {other}"), MenuAction::TransferWhole));
+        items.push((t!("Copia cartella corrente «{cwd_name}» intera → {other}", cwd_name = cwd_name, other = other), MenuAction::TransferWhole));
         if side == Side::Remote {
-            items.push(("Sync incrementale cartella → locale".into(), MenuAction::Sync));
+            items.push((t!("Sync incrementale cartella → locale").into(), MenuAction::Sync));
         }
-        items.push(("Nuova cartella qui…".into(), MenuAction::Mkdir));
-        items.push(("Seleziona tutto / niente".into(), MenuAction::MarkAll));
-        items.push(("Ordina (nome/dimensione/data)".into(), MenuAction::Sort));
-        items.push(("Mostra/nascondi file nascosti".into(), MenuAction::Hidden));
-        items.push(("Aggiorna".into(), MenuAction::Refresh));
+        items.push((t!("Nuova cartella qui…").into(), MenuAction::Mkdir));
+        items.push((t!("Seleziona tutto / niente").into(), MenuAction::MarkAll));
+        items.push((t!("Ordina (nome/dimensione/data)").into(), MenuAction::Sort));
+        items.push((t!("Mostra/nascondi file nascosti").into(), MenuAction::Hidden));
+        items.push((t!("Aggiorna").into(), MenuAction::Refresh));
         // dimensione reale (ricorsiva) di voce/marcate/cartella corrente, in background
         let targets: Vec<(String, bool)> = if marked > 0 {
             self.pane(side).map(|p| p.marked.iter().map(|m| (m.path.clone(), m.is_dir)).collect()).unwrap_or_default()
@@ -1254,18 +1259,18 @@ impl App {
                 crate::util::fmt_int(bytes)
             );
             if dirs > 0 || files > 1 {
-                txt.push_str(&format!(" · {} file", crate::util::fmt_int(files)));
+                txt.push_str(&t!(" · {n} file", n = crate::util::fmt_int(files)));
                 if dirs > 0 {
                     txt.push_str(&format!(
                         " · {} {}",
                         crate::util::fmt_int(dirs),
-                        if dirs == 1 { "cartella" } else { "cartelle" }
+                        if dirs == 1 { t!("cartella") } else { t!("cartelle") }
                     ));
                 }
             }
             let _ = tx.send((gen, txt));
         });
-        self.screen = Screen::Menu { items, sel: 0, pos, title, size: "calcolo dimensione…".into() };
+        self.screen = Screen::Menu { items, sel: 0, pos, title, size: t!("calcolo dimensione…").into() };
     }
 
     fn run_menu_action(&mut self, a: MenuAction) {
@@ -1298,7 +1303,7 @@ impl App {
             return;
         }
         if side == Side::Local && !Path::new(&path).is_dir() {
-            self.log(format!("⚠ cartella non trovata: {path}"));
+            self.log(t!("⚠ cartella non trovata: {path}", path = path));
             return;
         }
         let Some(p) = self.pane(side) else { return };
@@ -1374,7 +1379,7 @@ impl App {
                 items.push((format!("↺ {}  —  {p}", dev_basename(p)), p.clone()));
             }
         }
-        items.push(("✎ Digita un percorso…".into(), String::new()));
+        items.push((t!("✎ Digita un percorso…").into(), String::new()));
         if let Some(i) = items.iter().position(|(_, p)| *p == cwd) {
             cur_idx = i;
         }
@@ -1389,7 +1394,7 @@ impl App {
                 Side::Remote => self.remote.as_ref().map(|r| r.cwd.clone()).unwrap_or_default(),
             };
             self.screen = Screen::Input {
-                title: "Vai al percorso".into(),
+                title: t!("Vai al percorso").into(),
                 value: cwd,
                 action: InputAction::GotoPath(side),
             };
@@ -1409,7 +1414,7 @@ impl App {
             },
         };
         let on = self.saved.toggle_fav(side, &cwd);
-        self.log(if on { format!("★ preferito aggiunto: {cwd}") } else { format!("preferito rimosso: {cwd}") });
+        self.log(if on { t!("★ preferito aggiunto: {cwd}", cwd = cwd) } else { t!("preferito rimosso: {cwd}", cwd = cwd) });
     }
 
     pub fn page(&mut self, dir: i64) {
@@ -1424,7 +1429,7 @@ impl App {
         p.sort = p.sort.next();
         rebuild(p);
         let l = p.sort.label();
-        self.log(format!("ordinamento: {l}"));
+        self.log(t!("ordinamento: {l}", l = l));
     }
 
     /// `.`: mostra/nasconde i file che iniziano con '.'.
@@ -1434,7 +1439,7 @@ impl App {
         p.show_hidden = !p.show_hidden;
         rebuild(p);
         let on = p.show_hidden;
-        self.log(if on { "file nascosti: visibili" } else { "file nascosti: nascosti" });
+        self.log(if on { t!("file nascosti: visibili") } else { t!("file nascosti: nascosti") });
     }
 
     /// `*`: inverte le marcature.
@@ -1454,7 +1459,7 @@ impl App {
         let side = self.active;
         let cur = self.pane(side).map(|p| p.filter.clone()).unwrap_or_default();
         self.screen = Screen::Input {
-            title: "Filtro nome (vuoto = rimuovi)".into(),
+            title: t!("Filtro nome (vuoto = rimuovi)").into(),
             value: cur,
             action: InputAction::Filter(side),
         };
@@ -1469,7 +1474,7 @@ impl App {
             return;
         }
         self.screen = Screen::Input {
-            title: format!("Rinomina «{}»", e.name),
+            title: t!("Rinomina «{name}»", name = e.name),
             value: e.name.clone(),
             action: InputAction::Rename(side, e.full),
         };
@@ -1478,7 +1483,7 @@ impl App {
     /// `S`: esporta SMS + call log nel pannello locale (thread separato).
     pub fn export_sms_calllog(&mut self) {
         if self.queue.is_none() {
-            self.log("⚠ collega prima un device");
+            self.log(t!("⚠ collega prima un device"));
             return;
         }
         let adb = self.adb.clone();
@@ -1492,7 +1497,7 @@ impl App {
             let sms_f = format!("{cwd}/sms-{stamp}.jsonl");
             match actions::export_sms(&adb, &sms_f, &flag, &sink) {
                 Ok(n) => {
-                    let _ = sink.lock().unwrap().send(format!("SMS: {n} messaggi → {sms_f}"));
+                    let _ = sink.lock().unwrap().send(t!("SMS: {n} messaggi → {file}", n = n, file = sms_f));
                 }
                 Err(e) => {
                     let _ = sink.lock().unwrap().send(format!("⚠ SMS: {e}"));
@@ -1501,14 +1506,14 @@ impl App {
             let call_f = format!("{cwd}/calllog-{stamp}.jsonl");
             match actions::export_calllog(&adb, &call_f, &flag, &sink) {
                 Ok(n) => {
-                    let _ = sink.lock().unwrap().send(format!("chiamate: {n} voci → {call_f}"));
+                    let _ = sink.lock().unwrap().send(t!("chiamate: {n} voci → {file}", n = n, file = call_f));
                 }
                 Err(e) => {
-                    let _ = sink.lock().unwrap().send(format!("⚠ chiamate: {e}"));
+                    let _ = sink.lock().unwrap().send(t!("⚠ chiamate: {e}", e = e));
                 }
             }
         });
-        self.log("esportazione SMS/call log avviata…");
+        self.log(t!("esportazione SMS/call log avviata…"));
     }
 
     /// `x`: annulla il job in esecuzione.
@@ -1516,9 +1521,9 @@ impl App {
         if let Some(q) = self.queue.as_ref() {
             if let Some(id) = q.running_id() {
                 q.cancel(id);
-                self.log("annullamento richiesto…");
+                self.log(t!("annullamento richiesto…"));
             } else {
-                self.log("nessun trasferimento attivo");
+                self.log(t!("nessun trasferimento attivo"));
             }
         }
     }
@@ -1527,9 +1532,9 @@ impl App {
     pub fn cancel_queued(&mut self) {
         let n = self.queue.as_ref().map(|q| q.cancel_queued()).unwrap_or(0);
         if n > 0 {
-            self.log(format!("annullati {n} trasferimenti in coda"));
+            self.log(t!("annullati {n} trasferimenti in coda", n = n));
         } else {
-            self.log("nessun trasferimento in coda");
+            self.log(t!("nessun trasferimento in coda"));
         }
     }
 
@@ -1546,7 +1551,7 @@ impl App {
             Ok(v) => {
                 let n = v.len();
                 self.devices = v;
-                self.log(format!("trovati {n} device"));
+                self.log(t!("trovati {n} device", n = n));
             }
             Err(e) => self.log(format!("⚠ adb devices: {e}")),
         }
@@ -1761,7 +1766,7 @@ impl App {
 impl crate::transfer::Sink for Arc<Mutex<Sender<String>>> {
     fn set_total(&self, _t: u64) {}
     fn set_bytes(&self, b: u64) {
-        let _ = self.lock().unwrap().send(format!("righe esportate: {b}"));
+        let _ = self.lock().unwrap().send(t!("righe esportate: {b}", b = b));
     }
     fn add_bytes(&self, _n: u64) {}
     fn msg(&self, m: &str) {

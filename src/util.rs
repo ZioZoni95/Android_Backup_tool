@@ -165,7 +165,7 @@ pub fn default_backup_dir() -> Result<String, String> {
         .filter(|v| !v.is_empty())
         .map(|v| norm_local(&v))
         .or_else(|| home_dir().map(|h| format!("{}/Android_Backup/Backup", h.trim_end_matches('/'))))
-        .ok_or_else(|| "HOME/USERPROFILE non impostata".to_string())?;
+        .ok_or_else(|| t!("HOME/USERPROFILE non impostata").to_string())?;
     std::fs::create_dir_all(&d).map_err(|e| format!("{d}: {e}"))?;
     Ok(d)
 }

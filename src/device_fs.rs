@@ -36,7 +36,7 @@ impl Entry {
 pub fn safe_path(p: &str) -> Result<()> {
     let t = p.trim();
     if t.is_empty() || crate::util::is_local_root(t) || t.split('/').any(|c| c == "..") {
-        bail!("percorso non consentito: {t:?}");
+        bail!("{} {t:?}", t!("percorso non consentito:"));
     }
     Ok(())
 }
@@ -80,7 +80,7 @@ pub fn list(adb: &Adb, dir: &str) -> Result<Vec<Entry>> {
     let dir = dir.trim_end_matches('/');
     let dir = if dir.is_empty() { "/" } else { dir };
     if !is_dir(adb, dir)? {
-        bail!("directory non esistente o non accessibile: {dir}");
+        bail!(t!("directory non esistente o non accessibile: {dir}", dir = dir));
     }
 
     let all = nul_split(&adb.exec_out_collect(&format!(
@@ -136,7 +136,7 @@ pub fn list(adb: &Adb, dir: &str) -> Result<Vec<Entry>> {
 /// Elenco di una directory locale.
 pub fn list_local(dir: &str) -> Result<Vec<Entry>> {
     let mut v = Vec::new();
-    let rd = fs::read_dir(dir).map_err(|e| anyhow::anyhow!("lettura di {dir} fallita: {e}"))?;
+    let rd = fs::read_dir(dir).map_err(|e| anyhow::anyhow!(t!("lettura di {dir} fallita: {e}", dir = dir, e = e)))?;
     for e in rd {
         let Ok(e) = e else { continue };
         let full = crate::util::norm_local(&e.path().to_string_lossy());
@@ -209,7 +209,7 @@ pub fn rename_device(adb: &Adb, old: &str, new: &str) -> Result<()> {
         n = sh_quote(new)
     ))?;
     if out.contains("__EXISTS__") {
-        bail!("esiste già un elemento con quel nome");
+        bail!(t!("esiste già un elemento con quel nome"));
     }
     Ok(())
 }
@@ -219,7 +219,7 @@ pub fn rename_local(old: &str, new: &str) -> Result<()> {
     safe_path(old)?;
     safe_path(new)?;
     if Path::new(new).exists() {
-        bail!("esiste già un elemento con quel nome");
+        bail!(t!("esiste già un elemento con quel nome"));
     }
     fs::rename(old, new)?;
     Ok(())
