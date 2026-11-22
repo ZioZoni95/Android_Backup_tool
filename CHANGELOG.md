@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `ARCHITECTURE.md` rewritten in English to match the current code (module table, job queue, adb discovery/download, localization, per-platform notes, performance, known limits); the outdated v0.1 roadmap was replaced by a short ideas list.
+
 ### Fixed
 - `abt speedtest` no longer blames phone storage when its read speed is within 15% of the link speed (the read test goes through the same link, so the link is the real limit).
 - Terminals that paste the clipboard on right click (VS Code's integrated terminal on Windows) no longer turn the pasted text into commands: the event loop drains all ready events and `drop_paste` discards bursts of ≥ 16 character/Enter/Tab key events unless a text input is open (`App::accepts_text`); arrows, Esc and mouse events are kept, so the context menu still opens. Unit-tested.
