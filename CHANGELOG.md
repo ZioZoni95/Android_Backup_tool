@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Context menu no longer depends on the terminal forwarding the right button: middle click and Ctrl+left click open it too (some terminals, e.g. VS Code's integrated terminal and Windows Terminal, intercept right click for copy/paste); the `m` key still works. Covered by a unit test on `App::on_mouse`.
 
 ### Added
+- `abt speedtest [<file>]`: measures 256 MB through three separate paths and names the bottleneck — adb link (`toybox dd if=/dev/zero` over `exec-out`), phone storage read (`dd` from a large file, auto-picked in DCIM/Download/Movies or given as argument) and local disk write (`transfer::bench_local_write`, pseudo-random blocks, fsynced, temp file removed). `-o DIR` selects the disk to test.
 - Device list auto-refresh: on the device selection screen `App::poll_devices` runs `adb devices -l` on a background thread every 2 s and updates the list (keeping the selection in range), so a phone plugged in after startup appears without pressing `r`. Unit-tested with a fake adb script.
 - `ABT_DEBUG_MOUSE=1` logs received mouse button events in the Log panel to diagnose terminal mouse handling.
 - macOS support (experimental, untested on real hardware): `places::mounted_disks()` for macOS lists the `/Volumes/*` mounts using `df -k -P` (`parse_df_kib`, unit-tested); Linux keeps the `/proc/self/mounts` implementation (now gated with `cfg(all(unix, not(target_os = "macos")))`).
