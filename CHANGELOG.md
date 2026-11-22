@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- macOS support (experimental, untested on real hardware): `places::mounted_disks()` for macOS lists the `/Volumes/*` mounts using `df -k -P` (`parse_df_kib`, unit-tested); Linux keeps the `/proc/self/mounts` implementation (now gated with `cfg(all(unix, not(target_os = "macos")))`).
+- CI job `macos` (build + test) and release assets `abt-macos-arm64.tar.gz` / `abt-macos-x86_64.tar.gz` (the Intel build is cross-compiled on the arm64 runner with `--target x86_64-apple-darwin`); the release workflow now builds with an optional per-matrix `target`.
+- adb lookup also checks Homebrew locations (`/opt/homebrew/bin`, `/usr/local/bin`) on macOS; `Movies` is recognised as the local video folder.
+
+### Added
 - adb auto-install: when adb cannot be found the TUI offers to download Android platform-tools from `dl.google.com` (OS-specific URL via `adb::platform_tools_url`) into `<config>/abt/platform-tools`, with per-OS manual instructions (Windows / macOS `brew` / Linux `apt`, `dnf`, `pacman`). Key `d` on the device screen re-opens the offer; `Esc` during the download cancels it.
 - `abt install-adb` CLI command doing the same download/extraction with progress on stderr.
 - `adb::download_platform_tools` (`ureq` + `zip`, no external tools): streams into memory with a 300 MB cap, extracts with `enclosed_name()` (zip-slip safe), restores Unix modes, runs `adb kill-server` on a previous managed copy first (Windows file lock), verifies with `adb version`.

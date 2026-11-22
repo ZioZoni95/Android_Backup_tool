@@ -232,6 +232,11 @@ pub fn candidates() -> Vec<String> {
         dirs.push(format!("{h}/scoop/apps/adb/current/platform-tools").into());
         dirs.push(format!("{h}/scoop/shims").into());
     }
+    if cfg!(target_os = "macos") {
+        // Homebrew (Apple Silicon / Intel): un'app avviata dal Finder non eredita il PATH di brew.
+        dirs.push("/opt/homebrew/bin".into());
+        dirs.push("/usr/local/bin".into());
+    }
     if cfg!(windows) {
         if let Some(l) = env("LOCALAPPDATA") {
             dirs.push(format!("{l}/Android/Sdk/platform-tools").into());
