@@ -3,9 +3,18 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Re-publish (rebuild + refresh notes) for an existing tag from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)release, e.g. v0.3.0"
+        required: true
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -19,8 +28,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release --locked
+
+      # Release description = the matching section of CHANGELOG.md (English, Keep a Changelog).
+      - name: Extract release notes
+        shell: bash
+        run: |
+          ver="${TAG#v}"
+          {
+            awk -v v="$ver" '
+              index($0, "## [" v "]") == 1 { f = 1; next }
+              substr($0, 1, 4) == "## [" { f = 0 }
+              f' CHANGELOG.md | tr -d '\r' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+            printf '\n\n---\n\n'
+            printf '**Downloads:** `abt-linux-x86_64.tar.gz` (Linux), `abt-windows-x86_64.zip` (Windows). '
+            printf 'Requires [adb / platform-tools](https://developer.android.com/tools/releases/platform-tools) — see the [README](https://github.com/%s#requirements).\n\n' "$GITHUB_REPOSITORY"
+            printf 'Full details: [CHANGELOG.md](https://github.com/%s/blob/%s/CHANGELOG.md)\n' "$GITHUB_REPOSITORY" "$TAG"
+          } > RELEASE_NOTES.md
+          if [ "$(wc -l < RELEASE_NOTES.md)" -lt 8 ]; then echo "No CHANGELOG section for $ver" >&2; exit 1; fi
+          cat RELEASE_NOTES.md
+
       - name: Package (linux)
         if: runner.os == 'Linux'
         run: |
@@ -32,5 +62,7 @@ jobs:
         run: Compress-Archive -Path target/release/abt.exe,LICENSE -DestinationPath ${{ matrix.asset }}
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          body_path: RELEASE_NOTES.md
           files: ${{ matrix.asset }}
-          generate_release_notes: true

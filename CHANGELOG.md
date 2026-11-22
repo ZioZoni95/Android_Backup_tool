@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Release workflow: the GitHub release body is now the matching `CHANGELOG.md` section (English) plus download/requirements notes, instead of auto-generated commit links; `workflow_dispatch` with a `tag` input rebuilds and refreshes an existing release.
 - README: explicit requirements table (adb platform-tools, `tar`, USB debugging, Android 6+/toybox, 24-bit terminal, Rust only for source builds) in both languages.
 
 ## [0.3.0] - 2026-11-22
