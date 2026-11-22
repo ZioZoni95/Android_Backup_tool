@@ -479,6 +479,11 @@ impl App {
         }
     }
 
+    /// True se l'utente sta scrivendo in un campo di testo (dove un incolla è legittimo).
+    pub fn accepts_text(&self) -> bool {
+        matches!(self.screen, Screen::Input { .. })
+    }
+
     pub fn switch_active(&mut self) {
         self.active = match self.active {
             Side::Local => Side::Remote,

@@ -542,6 +542,24 @@ Lingua: automatica dal sistema, oppure ABT_LANG=it|en
 TUI: premi ? per l'elenco completo dei comandi"), version_line());
 }
 
+/// Oltre questa soglia di caratteri arrivati "tutti insieme" si tratta di un incolla, non di digitazione.
+const PASTE_BURST: usize = 16;
+
+/// Alcuni terminali (es. VS Code su Windows) incollano gli appunti al click destro: il testo arriva come
+/// una raffica di tasti che la TUI interpreterebbe come comandi (`d`, `y`, `p`, Invio…).
+/// Se in un colpo solo arrivano molti caratteri li scarta, tranne quando si sta scrivendo in un campo di testo.
+/// Frecce, Esc e mouse non vengono toccati.
+fn drop_paste(batch: Vec<crossterm::event::Event>, text_input: bool) -> Vec<crossterm::event::Event> {
+    use crossterm::event::{Event, KeyCode, KeyEventKind};
+    let is_text = |e: &Event| {
+        matches!(e, Event::Key(k) if k.kind == KeyEventKind::Press && matches!(k.code, KeyCode::Char(_) | KeyCode::Enter | KeyCode::Tab))
+    };
+    if text_input || batch.iter().filter(|e| is_text(e)).count() < PASTE_BURST {
+        return batch;
+    }
+    batch.into_iter().filter(|e| !is_text(e)).collect()
+}
+
 fn tui() -> Result<()> {
     use crossterm::event::{self, Event};
     use crossterm::{execute, terminal};
@@ -563,15 +581,22 @@ fn tui() -> Result<()> {
         loop {
             terminal.draw(|f| ui::draw(f, &mut app))?;
             if event::poll(Duration::from_millis(60))? {
-                match event::read()? {
-                    Event::Key(k) => app.on_key(k),
-                    Event::Mouse(m) => {
-                        if mouse_debug && matches!(m.kind, event::MouseEventKind::Down(_) | event::MouseEventKind::Up(_)) {
-                            app.log(format!("mouse: {:?} {:?} ({}, {})", m.kind, m.modifiers, m.column, m.row));
+                // Raccoglie tutti gli eventi già pronti: serve a riconoscere un "incolla" dal terminale.
+                let mut batch = vec![event::read()?];
+                while batch.len() < 4096 && event::poll(Duration::ZERO)? {
+                    batch.push(event::read()?);
+                }
+                for ev in drop_paste(batch, app.accepts_text()) {
+                    match ev {
+                        Event::Key(k) => app.on_key(k),
+                        Event::Mouse(m) => {
+                            if mouse_debug && matches!(m.kind, event::MouseEventKind::Down(_) | event::MouseEventKind::Up(_)) {
+                                app.log(format!("mouse: {:?} {:?} ({}, {})", m.kind, m.modifiers, m.column, m.row));
+                            }
+                            app.on_mouse(m)
                         }
-                        app.on_mouse(m)
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
             app.poll();
@@ -586,4 +611,61 @@ fn tui() -> Result<()> {
     execute!(terminal.backend_mut(), crossterm::event::DisableMouseCapture, terminal::LeaveAlternateScreen)?;
     let _ = io::stdout().flush();
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+    fn key(c: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(c, KeyModifiers::NONE))
+    }
+
+    fn pasted(text: &str) -> Vec<Event> {
+        text.chars().map(|c| key(KeyCode::Char(c))).collect()
+    }
+
+    #[test]
+    fn paste_burst_is_dropped_outside_text_input() {
+        let mut batch = pasted("rm -rf /sdcard/DCIM && yes please delete everything");
+        batch.push(key(KeyCode::Enter));
+        assert!(drop_paste(batch, false).is_empty());
+    }
+
+    #[test]
+    fn paste_burst_is_kept_in_text_input() {
+        let batch = pasted("C:/Users/me/Downloads/platform-tools");
+        let n = batch.len();
+        assert_eq!(drop_paste(batch, true).len(), n);
+    }
+
+    #[test]
+    fn normal_typing_arrows_and_mouse_are_untouched() {
+        let mut batch = pasted("dy"); // pochi tasti = digitazione reale
+        batch.push(key(KeyCode::Down));
+        batch.push(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: 3,
+            row: 4,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(drop_paste(batch, false).len(), 4);
+    }
+
+    #[test]
+    fn right_click_survives_a_paste_burst() {
+        let mut batch = vec![Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: 3,
+            row: 4,
+            modifiers: KeyModifiers::NONE,
+        })];
+        batch.extend(pasted("some clipboard text that is long enough"));
+        batch.push(key(KeyCode::Up));
+        let out = drop_paste(batch, false);
+        assert_eq!(out.len(), 2);
+        assert!(matches!(out[0], Event::Mouse(_)));
+        assert!(matches!(out[1], Event::Key(k) if k.code == KeyCode::Up));
+    }
 }
