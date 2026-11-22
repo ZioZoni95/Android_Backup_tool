@@ -490,7 +490,7 @@ impl App {
         let Some(p) = self.pane(self.active) else { return };
         let len = p.entries.len() as i64;
         let cur = p.sel as i64;
-        p.sel = (cur + delta).clamp(0, len.saturating_sub(1)) as usize;
+        p.sel = (cur + delta).clamp(0, (len - 1).max(0)) as usize;
         p.list_state.select(Some(p.sel));
     }
 
@@ -1617,7 +1617,7 @@ impl App {
         if let Screen::Devices { sel } = &mut self.screen {
             let len = self.devices.len() as i64;
             let cur = *sel as i64;
-            *sel = (cur + d).clamp(0, len.saturating_sub(1)) as usize;
+            *sel = (cur + d).clamp(0, (len - 1).max(0)) as usize;
         }
     }
 
@@ -1929,6 +1929,26 @@ mod tests {
         app.screen = Screen::Files;
         app.on_mouse(click(MouseEventKind::Down(MouseButton::Left), 5, 5));
         assert!(matches!(app.screen, Screen::Files));
+    }
+
+    /// Frecce su liste vuote (cartella senza voci, nessun device) non devono andare in panic.
+    #[test]
+    fn moving_in_empty_lists_does_not_panic() {
+        std::env::set_var("ABT_BACKUP_DIR", std::env::temp_dir().join("abt-test-backup"));
+        let mut app = App::new();
+        app.screen = Screen::Files;
+        app.active = Side::Local;
+        app.local.entries.clear();
+        app.move_sel(1);
+        app.move_sel(-1);
+        app.sel_home_end(true);
+        assert_eq!(app.local.sel, 0);
+
+        app.devices.clear();
+        app.screen = Screen::Devices { sel: 0 };
+        app.dev_move(1);
+        app.dev_move(-1);
+        assert!(matches!(app.screen, Screen::Devices { sel: 0 }));
     }
 
     /// Un device collegato dopo l'avvio compare da solo nella schermata di selezione.

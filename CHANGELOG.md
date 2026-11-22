@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Panic (`min > max` in `i64::clamp`) when pressing arrow keys on an empty list — an empty folder in a pane or no device on the selection screen: the upper bound was `len.saturating_sub(1)`, which is `-1` for signed integers. Fixed in `App::move_sel` and `App::dev_move`, with a regression test.
 - Context menu no longer depends on the terminal forwarding the right button: middle click and Ctrl+left click open it too (some terminals, e.g. VS Code's integrated terminal and Windows Terminal, intercept right click for copy/paste); the `m` key still works. Covered by a unit test on `App::on_mouse`.
 
 ### Added
