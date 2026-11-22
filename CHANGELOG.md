@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- README: explicit requirements table (adb platform-tools, `tar`, USB debugging, Android 6+/toybox, 24-bit terminal, Rust only for source builds) in both languages.
+
 ## [0.3.0] - 2026-11-22
 
 ### Added

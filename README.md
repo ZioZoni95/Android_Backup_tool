@@ -12,14 +12,27 @@
 Fast backup and file manager for Android over **adb**, instead of slow MTP.
 One binary, two interfaces: a two-pane **TUI** (Local ↔ Device) and a **CLI** for scripts.
 
+## Requirements
+
+| Needed | Why | How to get it |
+|---|---|---|
+| **adb** (Android platform-tools) | **required**: all communication with the phone goes through it | Windows/macOS/Linux: [platform-tools](https://developer.android.com/tools/releases/platform-tools) (unzip anywhere) · Debian/Ubuntu: `sudo apt install adb` · Fedora: `sudo dnf install android-tools` · macOS: `brew install android-platform-tools` |
+| `tar` | streams folders to/from the phone | already on Linux/macOS; on Windows built in since Windows 10 1803 (`System32\tar.exe`) |
+| Phone with **USB debugging** | lets adb connect | Settings → About phone → tap *Build number* 7 times → Developer options → USB debugging; accept the RSA key on first connection |
+| Android 6+ on the phone | uses the phone's built-in `toybox` | — |
+| Terminal with 24-bit colors | TUI look | any modern one; on Windows use **Windows Terminal** |
+| Rust 1.80+ | **only to build from source** | [rustup.rs](https://rustup.rs) |
+
+`abt` looks for adb by itself (`ADB_BIN`, saved path, `PATH`, Desktop/Downloads, Android SDK) and,
+if it can't find it, asks for its location at startup (press `a` on the device screen to change it later).
+
 ## Install
 
-1. Get a binary from [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
-   (Linux, Windows) or build it: `cargo build --release` (Rust 1.80+, binary in `target/release/abt`).
-2. Install **adb**: [platform-tools](https://developer.android.com/tools/releases/platform-tools)
-   (Linux: `sudo apt install adb`). `abt` finds it by itself (`ADB_BIN`, PATH, Desktop/Downloads, Android SDK)
-   and asks for the path if it can't. Windows also needs `tar` (built in since Windows 10).
-3. On the phone enable **USB debugging** and accept the RSA key. For Wi-Fi: connect via USB once, then `abt wifi`.
+1. Download the binary for your system from [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
+   (Linux, Windows) and unzip it, or build it: `cargo build --release` (binary in `target/release/abt`).
+2. Install **adb** (see above) and plug in the phone with USB debugging on.
+   For Wi-Fi: connect via USB once, then `abt wifi`.
+3. Run `abt`.
 
 ## How to use
 
@@ -47,14 +60,27 @@ Copyright © 2026 ZioZoni95 — released under the [MIT License](LICENSE).
 Backup e file manager veloce per Android via **adb**, al posto del lento MTP.
 Un solo binario, due interfacce: una **TUI** a due pannelli (Locale ↔ Device) e una **CLI** per script.
 
+### Requisiti
+
+| Serve | Perché | Come ottenerlo |
+|---|---|---|
+| **adb** (Android platform-tools) | **obbligatorio**: tutta la comunicazione col telefono passa da lì | Windows/macOS/Linux: [platform-tools](https://developer.android.com/tools/releases/platform-tools) (estrai ovunque) · Debian/Ubuntu: `sudo apt install adb` · Fedora: `sudo dnf install android-tools` · macOS: `brew install android-platform-tools` |
+| `tar` | trasferisce le cartelle in streaming | già presente su Linux/macOS; su Windows incluso da Windows 10 1803 (`System32\tar.exe`) |
+| Telefono con **debug USB** | permette la connessione adb | Impostazioni → Info telefono → tocca 7 volte *Numero build* → Opzioni sviluppatore → Debug USB; accetta la chiave RSA al primo collegamento |
+| Android 6+ sul telefono | usa `toybox`, incluso nel sistema | — |
+| Terminale a 24 bit di colore | aspetto della TUI | qualsiasi terminale moderno; su Windows usa **Windows Terminal** |
+| Rust 1.80+ | **solo per compilare dai sorgenti** | [rustup.rs](https://rustup.rs) |
+
+`abt` cerca adb da solo (`ADB_BIN`, percorso salvato, `PATH`, Desktop/Download, Android SDK) e,
+se non lo trova, ti chiede dove si trova all'avvio (poi `a` nella schermata device per cambiarlo).
+
 ### Installazione
 
-1. Scarica un binario da [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
-   (Linux, Windows) oppure compila: `cargo build --release` (Rust 1.80+, binario in `target/release/abt`).
-2. Installa **adb**: [platform-tools](https://developer.android.com/tools/releases/platform-tools)
-   (Linux: `sudo apt install adb`). `abt` lo trova da solo (`ADB_BIN`, PATH, Desktop/Download, Android SDK)
-   e ti chiede il percorso se non ci riesce. Su Windows serve anche `tar` (incluso da Windows 10).
-3. Sul telefono attiva il **debug USB** e accetta la chiave RSA. Per il Wi-Fi: collega prima via USB, poi `abt wifi`.
+1. Scarica il binario per il tuo sistema da [Releases](https://github.com/ZioZoni95/Android_Backup_tool/releases)
+   (Linux, Windows) ed estrailo, oppure compila: `cargo build --release` (binario in `target/release/abt`).
+2. Installa **adb** (vedi sopra) e collega il telefono con il debug USB attivo.
+   Per il Wi-Fi: collega prima via USB, poi `abt wifi`.
+3. Avvia `abt`.
 
 ### Come si usa
 
